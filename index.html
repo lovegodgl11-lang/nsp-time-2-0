@@ -297,6 +297,71 @@
             speedCheckAverageTimes = Object.fromEntries(Object.entries(groupedLogs).map(([name, data]) => [name, data.totalMs / data.count]));
         }
         
+        // --- Alarm & Notification Logic ---
+        function playAlarm() {
+            const audio = document.getElementById('alarm-sound');
+            
+            // Check for custom alarm in localStorage (Base64 string)
+            const customAlarm = localStorage.getItem('customAlarmSound');
+            const defaultAlarm = localStorage.getItem('alarmSound') || 'https://actions.google.com/sounds/v1/alarms/digital_watch_alarm_long.ogg';
+            
+            if (customAlarm) {
+                audio.src = customAlarm;
+            } else if (!audio.src || audio.src !== defaultAlarm) {
+                audio.src = defaultAlarm;
+            }
+            
+            if (audio) {
+                audio.volume = 1.0; // Enforce Max Volume
+                audio.loop = true;
+                audio.play().catch(e => console.log("Audio play failed (interaction needed):", e));
+                document.getElementById('stop-alarm-btn').classList.remove('hidden');
+            }
+        }
+
+        window.stopAlarm = function() {
+            const audio = document.getElementById('alarm-sound');
+            if (audio) {
+                audio.pause();
+                audio.currentTime = 0;
+            }
+            document.getElementById('stop-alarm-btn').classList.add('hidden');
+        };
+
+        function speakText(text) {
+            if ('speechSynthesis' in window) {
+                const utterance = new SpeechSynthesisUtterance(text);
+                speechSynthesis.speak(utterance);
+            }
+        }
+
+        function checkDeadlines() {
+            const now = Date.now();
+            allOrders.forEach(order => {
+                if (order.estimatedCompletionTimestamp) {
+                    const status = (order.pipelineStatus || order.status || '').toLowerCase();
+                    const isComplete = status === 'completed' || status === 'handover' || status === 'delivered';
+                    
+                    if (!isComplete && now > order.estimatedCompletionTimestamp) {
+                        // Order is overdue and not completed
+                        if (!notifiedOverdueOrders.has(order.id)) {
+                            notifiedOverdueOrders.add(order.id);
+                            
+                            // Trigger Alerts
+                            playAlarm();
+                            speakText(`Alert! Order number ${order.orderNumber} for ${order.customerName} is overdue.`);
+                            showToast(`⚠️ Order #${order.orderNumber} is Overdue!`, true);
+                            
+                            // Refresh schedule page if open to show visual alert
+                            if (document.getElementById('schedule-page').classList.contains('active')) {
+                                renderSchedulePage();
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
         // --- Navigation ---
         const pageRenderers = {
             home: renderHomePage,
@@ -329,8 +394,6 @@
         // --- Page Renderers ---
         function renderHomePage() {
             const container = document.getElementById('home-page');
-            
-            // --- Worker Stats Calculations ---
             const today = new Date().setHours(0,0,0,0);
             const todayLogs = allSpeedCheckLogs.filter(log => new Date(log.timestamp).setHours(0,0,0,0) === today).sort((a,b) => a.timestamp - b.timestamp);
             const totalHoursMs = todayLogs.reduce((sum, log) => sum + log.durationMs, 0);
@@ -371,20 +434,20 @@
                         Today's Schedule
                     </h2>
                     <div class="grid grid-cols-2 gap-3">
-                        <div onclick="openOrderListModal('Total Scheduled', 'total')" class="bg-blue-100 p-4 rounded-xl shadow-sm text-center cursor-pointer active:scale-95 transition-transform border border-blue-200">
+                        <div onclick="openOrderListModal('Total Scheduled', 'total')" class="bg-blue-100 p-4 rounded-xl shadow-sm text-center cursor-pointer active:scale-95 transition-transform border border-blue-200 hover:bg-blue-200">
                             <p class="text-blue-800 text-xs font-bold uppercase tracking-wider">Total</p>
                             <p class="text-3xl font-black text-blue-900 mt-1">${totalScheduled}</p>
                         </div>
-                        <div onclick="openOrderListModal('Pending', 'pending')" class="bg-yellow-100 p-4 rounded-xl shadow-sm text-center cursor-pointer active:scale-95 transition-transform border border-yellow-200">
+                        <div onclick="openOrderListModal('Pending', 'pending')" class="bg-yellow-100 p-4 rounded-xl shadow-sm text-center cursor-pointer active:scale-95 transition-transform border border-yellow-200 hover:bg-yellow-200">
                             <p class="text-yellow-800 text-xs font-bold uppercase tracking-wider">Pending</p>
                             <p class="text-3xl font-black text-yellow-900 mt-1">${pendingOrders.length}</p>
                         </div>
-                        <div onclick="openOrderListModal('Overdue', 'overdue')" class="bg-red-100 p-4 rounded-xl shadow-sm text-center cursor-pointer active:scale-95 transition-transform border border-red-200 relative overflow-hidden">
+                        <div onclick="openOrderListModal('Overdue', 'overdue')" class="bg-red-100 p-4 rounded-xl shadow-sm text-center cursor-pointer active:scale-95 transition-transform border border-red-200 relative overflow-hidden hover:bg-red-200">
                             ${overdueOrders.length > 0 ? '<div class="absolute top-0 right-0 w-3 h-3 bg-red-500 rounded-full animate-ping"></div>' : ''}
                             <p class="text-red-800 text-xs font-bold uppercase tracking-wider">Overdue</p>
                             <p class="text-3xl font-black text-red-900 mt-1">${overdueOrders.length}</p>
                         </div>
-                        <div onclick="openOrderListModal('Completed', 'completed')" class="bg-green-100 p-4 rounded-xl shadow-sm text-center cursor-pointer active:scale-95 transition-transform border border-green-200">
+                        <div onclick="openOrderListModal('Completed', 'completed')" class="bg-green-100 p-4 rounded-xl shadow-sm text-center cursor-pointer active:scale-95 transition-transform border border-green-200 hover:bg-green-200">
                             <p class="text-green-800 text-xs font-bold uppercase tracking-wider">Done</p>
                             <p class="text-3xl font-black text-green-900 mt-1">${completedOrders.length}</p>
                         </div>
@@ -445,8 +508,6 @@
                     </div>
                 </div>
             `;
-            
-            // Re-attach global handlers
             window.openPerformanceReportModal = openPerformanceReportModal;
             window.openOrderListModal = openOrderListModal;
         }
@@ -520,6 +581,67 @@
         function renderSchedulePage() {
             const container = document.getElementById('schedule-page');
             
+            // Check if static structure exists (Header area), if not, create it once.
+            if (!document.getElementById('schedule-lists-container')) {
+                container.innerHTML = `
+                    <div class="sticky top-[-1rem] bg-gray-100 pt-4 pb-4 z-10 -mx-4 px-4 border-b border-gray-200 shadow-sm">
+                        <div class="flex gap-2 mb-2">
+                            <input type="search" id="schedule-search-input" placeholder="Search by Order # or Name..." class="app-input flex-grow">
+                            <select id="schedule-sort-select" class="app-input w-auto">
+                                <option value="eta-asc">Deadline: Earliest</option>
+                                <option value="eta-desc">Deadline: Latest</option>
+                                <option value="name-asc">Name: A-Z</option>
+                            </select>
+                        </div>
+                        <div class="flex gap-2">
+                            <button class="schedule-filter-btn flex-1 py-2 px-3 text-sm font-semibold rounded-lg bg-indigo-600 text-white" data-filter="all">All</button>
+                            <button class="schedule-filter-btn flex-1 py-2 px-3 text-sm font-semibold rounded-lg bg-white text-gray-700" data-filter="to-schedule">To Schedule</button>
+                            <button class="schedule-filter-btn flex-1 py-2 px-3 text-sm font-semibold rounded-lg bg-white text-gray-700" data-filter="upcoming">Upcoming</button>
+                        </div>
+                    </div>
+                    <div id="schedule-lists-container" class="mt-4 space-y-8"></div>
+                `;
+                
+                // Attach listeners once
+                document.getElementById('schedule-search-input').addEventListener('input', (e) => { scheduleSearchQuery = e.target.value; renderScheduleList(); });
+                document.getElementById('schedule-sort-select').addEventListener('change', (e) => { scheduleSortOption = e.target.value; renderScheduleList(); });
+                document.querySelectorAll('.schedule-filter-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => { 
+                        scheduleActiveFilter = e.currentTarget.dataset.filter; 
+                        document.querySelectorAll('.schedule-filter-btn').forEach(b => {
+                            b.className = `schedule-filter-btn flex-1 py-2 px-3 text-sm font-semibold rounded-lg ${b.dataset.filter === scheduleActiveFilter ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700'}`;
+                        });
+                        renderScheduleList(); 
+                    });
+                });
+                
+                document.getElementById('schedule-lists-container').addEventListener('click', (e) => {
+                    const unscheduleBtn = e.target.closest('.unschedule-btn');
+                    if (unscheduleBtn) {
+                        const orderId = unscheduleBtn.dataset.orderId;
+                        showDeleteConfirm(() => {
+                            db.ref(`orders/${orderId}`).update({ pipelineStatus: 'new', assignedTaskName: null, estimatedCompletionTimestamp: null }).then(() => {
+                                showToast("Order unscheduled.");
+                                notifiedOverdueOrders.delete(orderId); // Reset notification status
+                            });
+                        }, "Unschedule Order?", "This will remove the deadline and move it back to the 'To Schedule' list.");
+                    }
+                });
+            }
+            
+            // Just update the inputs to match state (in case navigating back)
+            document.getElementById('schedule-search-input').value = scheduleSearchQuery;
+            document.getElementById('schedule-sort-select').value = scheduleSortOption;
+            document.querySelectorAll('.schedule-filter-btn').forEach(b => {
+                b.className = `schedule-filter-btn flex-1 py-2 px-3 text-sm font-semibold rounded-lg ${b.dataset.filter === scheduleActiveFilter ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700'}`;
+            });
+
+            renderScheduleList();
+        }
+
+        function renderScheduleList() {
+            const listContainer = document.getElementById('schedule-lists-container');
+            
             let filteredOrders = allOrders;
             if (scheduleSearchQuery) {
                 const query = scheduleSearchQuery.toLowerCase();
@@ -536,101 +658,112 @@
                 return 0;
             });
 
-            const toSchedule = filteredOrders.filter(o => o.pipelineStatus === 'new' || !o.pipelineStatus || o.status === 'Pending');
-            const upcoming = filteredOrders.filter(o => o.pipelineStatus === 'in_progress');
+            // Improved Filtering Logic to handle potential state inconsistencies
+            const toSchedule = filteredOrders.filter(o => 
+                (o.pipelineStatus === 'new' || !o.pipelineStatus || o.status === 'Pending') && !o.estimatedCompletionTimestamp
+            );
+            const upcoming = filteredOrders.filter(o => 
+                o.estimatedCompletionTimestamp && o.pipelineStatus !== 'handover' && o.status !== 'Completed' && o.status !== 'Delivered'
+            );
 
-            container.innerHTML = `
-                <div class="sticky top-[-1rem] bg-gray-100 pt-4 pb-4 z-10 -mx-4 px-4 border-b border-gray-200 shadow-sm">
-                    <div class="flex gap-2 mb-2">
-                        <input type="search" id="schedule-search-input" placeholder="Search by Order # or Name..." class="app-input flex-grow" value="${scheduleSearchQuery}">
-                        <select id="schedule-sort-select" class="app-input w-auto">
-                            <option value="eta-asc" ${scheduleSortOption==='eta-asc'?'selected':''}>Deadline: Earliest</option>
-                            <option value="eta-desc" ${scheduleSortOption==='eta-desc'?'selected':''}>Deadline: Latest</option>
-                            <option value="name-asc" ${scheduleSortOption==='name-asc'?'selected':''}>Name: A-Z</option>
-                        </select>
+            listContainer.innerHTML = `
+                ${(scheduleActiveFilter === 'all' || scheduleActiveFilter === 'to-schedule') ? `
+                <div>
+                    <h2 class="text-lg font-bold text-gray-700 mb-3">Orders to Schedule (${toSchedule.length})</h2>
+                    <div id="to-schedule-list" class="space-y-3">
+                        ${toSchedule.length > 0 ? toSchedule.map(order => `
+                            <div class="bg-white p-3 rounded-lg shadow-sm border border-gray-200">
+                                <div class="flex justify-between items-center">
+                                    <p class="font-semibold">#${order.orderNumber || 'N/A'} - ${order.customerName}</p>
+                                    <button onclick="openEtaModal('${order.id}')" class="bg-indigo-100 text-indigo-700 font-semibold text-xs py-1 px-3 rounded-full hover:bg-indigo-200">Set Time</button>
+                                </div>
+                            </div>
+                        `).join('') : '<p class="bg-white p-4 rounded-lg text-sm text-center text-gray-500">All new orders are scheduled!</p>'}
                     </div>
-                    <div class="flex gap-2">
-                        <button class="schedule-filter-btn flex-1 py-2 px-3 text-sm font-semibold rounded-lg ${scheduleActiveFilter === 'all' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700'}" data-filter="all">All (${toSchedule.length + upcoming.length})</button>
-                        <button class="schedule-filter-btn flex-1 py-2 px-3 text-sm font-semibold rounded-lg ${scheduleActiveFilter === 'to-schedule' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700'}" data-filter="to-schedule">To Schedule (${toSchedule.length})</button>
-                        <button class="schedule-filter-btn flex-1 py-2 px-3 text-sm font-semibold rounded-lg ${scheduleActiveFilter === 'upcoming' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700'}" data-filter="upcoming">Upcoming (${upcoming.length})</button>
-                    </div>
-                </div>
-                
-                <div id="schedule-lists-container" class="mt-4 space-y-8">
-                    ${(scheduleActiveFilter === 'all' || scheduleActiveFilter === 'to-schedule') ? `
-                    <div>
-                        <h2 class="text-lg font-bold text-gray-700 mb-3">Orders to Schedule (${toSchedule.length})</h2>
-                        <div id="to-schedule-list" class="space-y-3">
-                            ${toSchedule.length > 0 ? toSchedule.map(order => `
-                                <div class="bg-white p-3 rounded-lg shadow-sm border border-gray-200">
-                                    <div class="flex justify-between items-center">
-                                        <p class="font-semibold">#${order.orderNumber || 'N/A'} - ${order.customerName}</p>
-                                        <button onclick="openEtaModal('${order.id}')" class="bg-indigo-100 text-indigo-700 font-semibold text-xs py-1 px-3 rounded-full hover:bg-indigo-200">Set Time</button>
+                </div>` : ''}
+
+                ${(scheduleActiveFilter === 'all' || scheduleActiveFilter === 'upcoming') ? `
+                <div>
+                    <h2 class="text-lg font-bold text-gray-700 mb-3">Upcoming Deadlines (${upcoming.length})</h2>
+                    <div id="upcoming-list" class="space-y-3">
+                        ${upcoming.length > 0 ? upcoming.map(order => {
+                            const eta = new Date(order.estimatedCompletionTimestamp);
+                            const remainingMs = eta - Date.now();
+                            const isOverdue = remainingMs < 0;
+                            return `
+                            <div class="bg-white p-3 rounded-lg shadow-sm border-l-4 ${isOverdue ? 'border-red-500 overdue-alert' : 'border-blue-500'}">
+                                <div class="flex justify-between items-center">
+                                    <p class="font-semibold">#${order.orderNumber} - ${order.customerName}</p>
+                                    <div class="flex items-center gap-2">
+                                        <p class="text-xs font-semibold ${isOverdue ? 'text-red-600' : 'text-blue-600'}">${eta.toLocaleDateString()} @ ${eta.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
+                                        <button class="text-red-500 hover:text-red-700 p-1 unschedule-btn" data-order-id="${order.id}" title="Unschedule">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                        </button>
                                     </div>
                                 </div>
-                            `).join('') : '<p class="bg-white p-4 rounded-lg text-sm text-center text-gray-500">All new orders are scheduled!</p>'}
-                        </div>
-                    </div>` : ''}
-
-                    ${(scheduleActiveFilter === 'all' || scheduleActiveFilter === 'upcoming') ? `
-                    <div>
-                        <h2 class="text-lg font-bold text-gray-700 mb-3">Upcoming Deadlines (${upcoming.length})</h2>
-                        <div id="upcoming-list" class="space-y-3">
-                            ${upcoming.length > 0 ? upcoming.map(order => {
-                                const eta = new Date(order.estimatedCompletionTimestamp);
-                                const remainingMs = eta - Date.now();
-                                const isOverdue = remainingMs < 0;
-                                return `
-                                <div class="bg-white p-3 rounded-lg shadow-sm border-l-4 ${isOverdue ? 'border-red-500 overdue-alert' : 'border-blue-500'}">
-                                    <div class="flex justify-between items-center">
-                                        <p class="font-semibold">#${order.orderNumber} - ${order.customerName}</p>
-                                        <div class="flex items-center gap-2">
-                                            <p class="text-xs font-semibold ${isOverdue ? 'text-red-600' : 'text-blue-600'}">${eta.toLocaleDateString()} @ ${eta.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
-                                            <button class="text-red-500 hover:text-red-700 p-1 unschedule-btn" data-order-id="${order.id}" title="Unschedule">
-                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <p class="text-sm mt-1 text-gray-600">Task: ${order.assignedTaskName || 'N/A'}</p>
-                                </div>
-                                `;
-                            }).join('') : '<p class="bg-white p-4 rounded-lg text-sm text-center text-gray-500">No orders currently in progress.</p>'}
-                        </div>
-                    </div>` : ''}
-                </div>
+                                <p class="text-sm mt-1 text-gray-600">Task: ${order.assignedTaskName || 'N/A'}</p>
+                            </div>
+                            `;
+                        }).join('') : '<p class="bg-white p-4 rounded-lg text-sm text-center text-gray-500">No orders currently in progress.</p>'}
+                    </div>
+                </div>` : ''}
             `;
-
-            // Re-attach listeners after rendering
-            document.getElementById('schedule-search-input').addEventListener('input', (e) => { scheduleSearchQuery = e.target.value; renderSchedulePage(); });
-            document.getElementById('schedule-sort-select').addEventListener('change', (e) => { scheduleSortOption = e.target.value; renderSchedulePage(); });
-            document.querySelectorAll('.schedule-filter-btn').forEach(btn => {
-                btn.addEventListener('click', (e) => { scheduleActiveFilter = e.currentTarget.dataset.filter; renderSchedulePage(); });
-            });
-            
-            // Unschedule action delegated listener
-            document.getElementById('schedule-lists-container').addEventListener('click', (e) => {
-                const unscheduleBtn = e.target.closest('.unschedule-btn');
-                if (unscheduleBtn) {
-                    const orderId = unscheduleBtn.dataset.orderId;
-                    showDeleteConfirm(() => {
-                        db.ref(`orders/${orderId}`).update({ pipelineStatus: 'new', assignedTaskName: null, estimatedCompletionTimestamp: null }).then(() => {
-                            showToast("Order unscheduled.");
-                            notifiedOverdueOrders.delete(orderId); // Reset notification status
-                        });
-                    }, "Unschedule Order?", "This will remove the deadline and move it back to the 'To Schedule' list.");
-                }
-            });
         }
 
         // --- Timer Page ---
         function renderTimerPage() { 
              const container = document.getElementById('timer-page');
+             
+             // Initial Static Layout (Header + Input) - Only render if not present
+             if (!document.getElementById('timer-list-container')) {
+                 container.innerHTML = `
+                    <div class="sticky top-0 bg-gray-100 pb-4 z-10 -mt-2 pt-2 space-y-4">
+                        <div class="bg-gray-900 text-white p-6 rounded-2xl shadow-lg text-center relative overflow-hidden">
+                            <div class="relative z-10">
+                                <p class="text-xs text-gray-400 uppercase tracking-widest mb-1">Current Time</p>
+                                <div id="digital-clock" class="digital-font text-5xl font-black tracking-tight">--:--:--</div>
+                                <div class="text-sm text-gray-400 mt-1" id="digital-date">...</div>
+                            </div>
+                            <div class="absolute top-0 right-0 -mr-8 -mt-8 w-32 h-32 rounded-full bg-indigo-500 opacity-20 blur-2xl"></div>
+                            <div class="absolute bottom-0 left-0 -ml-8 -mb-8 w-32 h-32 rounded-full bg-purple-500 opacity-20 blur-2xl"></div>
+                        </div>
+                        <input type="search" id="timer-search-input" placeholder="Search tasks..." class="app-input" value="${timerSearchQuery}">
+                    </div>
+                    <div id="timer-shop-closed-banner" class="hidden bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4">
+                        <strong class="font-bold">Shop Closed!</strong>
+                        <span class="block sm:inline">Timer starts are disabled outside business hours.</span>
+                    </div>
+                    <div id="timer-list-container" class="space-y-4 pb-20"></div>
+                `;
+                
+                document.getElementById('timer-search-input').addEventListener('input', (e) => { 
+                    timerSearchQuery = e.target.value; 
+                    renderTimerList(); 
+                });
+                startClock();
+             }
+             
+             renderTimerList();
+        }
+        
+        function renderTimerList() {
+             const listContainer = document.getElementById('timer-list-container');
+             const banner = document.getElementById('timer-shop-closed-banner');
+             if (!listContainer) return;
+
+             // Shop Closing Logic Check
+             const now = new Date();
+             const [closeH, closeM] = (shopSchedule.close || '21:00').split(':');
+             const closeTime = new Date();
+             closeTime.setHours(closeH, closeM, 0);
+             const isShopClosed = now > closeTime;
+             
+             if(banner) banner.classList.toggle('hidden', !isShopClosed);
+
              let sortedTasks = [...speedCheckTasks].sort((a,b) => (a.name || '').localeCompare(b.name || ''));
              if (timerSearchQuery) sortedTasks = sortedTasks.filter(t => t.name.toLowerCase().includes(timerSearchQuery.toLowerCase()));
              
              const tasksHtml = sortedTasks.map(task => {
-                // IMPORTANT: activeTimers stores data keyed by task.id.
-                // We must check if THIS SPECIFIC task is the one in the object.
                 const timerState = activeTimers[task.id];
                 const isActive = timerState && !timerState.isPaused;
                 const isPaused = timerState && timerState.isPaused;
@@ -655,6 +788,10 @@
                 }
                 
                 const escapedTaskName = task.name.replace(/'/g, "\\'"); 
+                const disabledProp = (isShopClosed && !isActive && !isPaused) ? 'disabled' : '';
+                const startBtnClass = (isShopClosed && !isActive && !isPaused) 
+                    ? 'bg-gray-400 cursor-not-allowed text-white font-bold py-2 rounded-lg' 
+                    : 'bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 rounded-lg';
 
                 return `
                 <div class="${cardClass} p-4 rounded-xl shadow-sm flex flex-col gap-3 transition-all duration-300" id="task-card-${task.id}">
@@ -675,7 +812,7 @@
                     <div class="grid grid-cols-3 gap-2 mt-2">
                         ${isActive 
                             ? `<button class="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 rounded-lg" onclick="pauseSpeedCheckTimer('${task.id}')">Pause</button>`
-                            : `<button class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 rounded-lg" onclick="startSpeedCheckTimer('${task.id}', '${escapedTaskName}')">${isPaused ? 'Resume' : 'Start'}</button>`
+                            : `<button class="${startBtnClass}" onclick="startSpeedCheckTimer('${task.id}', '${escapedTaskName}')" ${disabledProp}>${isPaused ? 'Resume' : 'Start'}</button>`
                         }
                         <button class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 rounded-lg ${(isActive || isPaused) ? '' : 'opacity-50 cursor-not-allowed'}" 
                                 onclick="${(isActive || isPaused) ? `stopSpeedCheckTimer('${task.id}')` : ''}" 
@@ -685,24 +822,8 @@
                     </div>
                 </div>`;
             }).join('');
-
-            container.innerHTML = `
-                <div class="sticky top-0 bg-gray-100 pb-4 z-10 -mt-2 pt-2 space-y-4">
-                    <div class="bg-gray-900 text-white p-6 rounded-2xl shadow-lg text-center relative overflow-hidden">
-                        <div class="relative z-10">
-                            <p class="text-xs text-gray-400 uppercase tracking-widest mb-1">Current Time</p>
-                            <div id="digital-clock" class="digital-font text-5xl font-black tracking-tight">--:--:--</div>
-                            <div class="text-sm text-gray-400 mt-1" id="digital-date">...</div>
-                        </div>
-                        <div class="absolute top-0 right-0 -mr-8 -mt-8 w-32 h-32 rounded-full bg-indigo-500 opacity-20 blur-2xl"></div>
-                        <div class="absolute bottom-0 left-0 -ml-8 -mb-8 w-32 h-32 rounded-full bg-purple-500 opacity-20 blur-2xl"></div>
-                    </div>
-                    <input type="search" id="timer-search-input" placeholder="Search tasks..." class="app-input" value="${timerSearchQuery}">
-                </div>
-                <div class="space-y-4 pb-20">${tasksHtml.length > 0 ? tasksHtml : '<p class="text-center text-gray-500 py-10">No tasks found.</p>'}</div>
-            `;
-            document.getElementById('timer-search-input').addEventListener('input', (e) => { timerSearchQuery = e.target.value; renderTimerPage(); });
-            startClock();
+            
+            listContainer.innerHTML = tasksHtml.length > 0 ? tasksHtml : '<p class="text-center text-gray-500 py-10">No tasks found.</p>';
         }
         
         function startClock() {
@@ -754,8 +875,10 @@
                 const masterRate = task.rate || 0;
                 const ratePerHour = masterRate > 0 && avgMs > 0 ? (masterRate / (avgMs / 3600000)) : 0;
                 const ratePerMinute = ratePerHour / 60;
+                const ratePerMinuteSimple = (masterRate / (avgMs / 60000));
                 const tasksPerHour = avgMs > 0 ? (3600000 / avgMs) : 0;
-                return { ...task, avgMs, ratePerHour, ratePerMinute, tasksPerHour };
+                const avgMinutes = avgMs / 60000;
+                return { ...task, avgMs, ratePerHour, ratePerMinute, ratePerMinuteSimple, tasksPerHour, avgMinutes };
             }).filter(Boolean).sort((a, b) => b.ratePerHour - a.ratePerHour);
 
             const escapedTaskName = (name) => name.replace(/'/g, "\\'");
@@ -774,12 +897,19 @@
                      <div class="bg-white rounded-xl shadow-md overflow-hidden">
                         <div class="overflow-x-auto">
                             <table class="w-full text-sm">
-                                <thead class="bg-gray-50"><tr class="text-left"><th class="p-3 font-semibold">Task</th><th class="p-3 font-semibold text-right">Avg. Time</th><th class="p-3 font-semibold text-right">Rate/Hour</th><th class="p-3 font-semibold text-right">History</th></tr></thead>
+                                <thead class="bg-gray-50"><tr class="text-left">
+                                    <th class="p-3 font-semibold">Task</th>
+                                    <th class="p-3 font-semibold text-right">Avg Min</th>
+                                    <th class="p-3 font-semibold text-right">Rate/Min</th>
+                                    <th class="p-3 font-semibold text-right">Rate/Hour</th>
+                                    <th class="p-3 font-semibold text-right">History</th>
+                                </tr></thead>
                                 <tbody>
                                 ${analysisData.length > 0 ? analysisData.map(d => `
                                     <tr class="border-t">
                                         <td class="p-3 font-medium">${d.name}</td>
-                                        <td class="p-3 text-right font-mono">${formatMilliseconds(d.avgMs, true)}</td>
+                                        <td class="p-3 text-right font-mono">${d.avgMinutes.toFixed(1)}m</td>
+                                        <td class="p-3 text-right font-mono font-bold text-blue-600">₹${d.ratePerMinuteSimple.toFixed(2)}</td>
                                         <td class="p-3 text-right font-mono font-bold text-green-600">₹${d.ratePerHour.toFixed(2)}</td>
                                         <td class="p-3 text-right"><button onclick="openLogManager('${escapedTaskName(d.name)}')" class="bg-indigo-100 text-indigo-700 hover:bg-indigo-200 px-3 py-1 rounded text-xs font-semibold">Manage Logs</button></td>
                                     </tr>
@@ -878,7 +1008,7 @@
                 intervalId: setInterval(() => updateTaskTimerDisplay(taskId), 1000) 
             };
             
-            renderTimerPage();
+            renderTimerList();
         }
 
         function pauseSpeedCheckTimer(taskId) {
@@ -888,7 +1018,7 @@
                 timer.intervalId = null; 
                 timer.isPaused = true; 
                 timer.accumulatedMs += (Date.now() - timer.startTime); 
-                renderTimerPage(); 
+                renderTimerList(); 
             }
         }
 
@@ -915,7 +1045,7 @@
             }
             
             delete activeTimers[taskId];
-            renderTimerPage();
+            renderTimerList();
         }
 
         function updateTaskTimerDisplay(taskId) {
@@ -930,83 +1060,150 @@
         // --- Settings Page ---
         function renderSettingsPage() {
             const container = document.getElementById('settings-page');
+            
+            // Render only if container is empty (first load) or we need to refresh specific parts
+            if (!document.getElementById('settings-content-wrapper')) {
+                const currentAlarm = localStorage.getItem('alarmSound') || 'https://actions.google.com/sounds/v1/alarms/digital_watch_alarm_long.ogg';
+                
+                container.innerHTML = `
+                    <div id="settings-content-wrapper">
+                         <div class="bg-white p-4 rounded-xl shadow-md">
+                             <h2 class="text-lg font-bold text-gray-700 mb-4">Shop Hours</h2>
+                             <div class="space-y-4">
+                                 <div><label class="block text-sm font-medium text-gray-700">Open</label><input type="time" id="shop-open-time" class="app-input" value="${shopSchedule.open || '10:00'}"></div>
+                                 <div><label class="block text-sm font-medium text-gray-700">Close</label><input type="time" id="shop-close-time" class="app-input" value="${shopSchedule.close || '21:00'}"></div>
+                                 <button id="save-schedule-btn" class="w-full bg-indigo-600 text-white font-semibold py-2 px-4 rounded-lg">Save Hours</button>
+                             </div>
+                        </div>
+                        <div class="bg-white p-4 rounded-xl shadow-md mt-6">
+                             <h2 class="text-lg font-bold text-gray-700 mb-4">Notification Settings</h2>
+                             <div class="space-y-4">
+                                 <div>
+                                    <label class="block text-sm font-medium text-gray-700">Alarm Sound</label>
+                                    <select id="alarm-sound-select" class="app-input">
+                                        <option value="https://actions.google.com/sounds/v1/alarms/digital_watch_alarm_long.ogg" ${currentAlarm.includes('digital') ? 'selected' : ''}>Digital Watch</option>
+                                        <option value="https://actions.google.com/sounds/v1/alarms/beep_short.ogg" ${currentAlarm.includes('beep') ? 'selected' : ''}>Beep</option>
+                                        <option value="https://actions.google.com/sounds/v1/alarms/mechanical_clock_ring.ogg" ${currentAlarm.includes('mechanical') ? 'selected' : ''}>Mechanical Ring</option>
+                                    </select>
+                                 </div>
+                                 <div>
+                                    <label class="block text-sm font-medium text-gray-700">Custom Ringtone</label>
+                                    <div class="flex gap-2 items-center">
+                                        <input type="file" id="custom-alarm-upload" accept="audio/*" class="app-input text-xs">
+                                        <button id="clear-custom-alarm" class="text-red-500 text-xs font-bold border border-red-200 px-2 py-1 rounded">Clear</button>
+                                    </div>
+                                    <p class="text-xs text-gray-500 mt-1">Select an audio file from your device.</p>
+                                 </div>
+                                 <button id="test-sound-btn" class="w-full bg-gray-200 text-gray-800 font-semibold py-2 px-4 rounded-lg hover:bg-gray-300">Test Sound</button>
+                             </div>
+                        </div>
+                         <div class="bg-white p-4 rounded-xl shadow-md mt-6">
+                             <h2 class="text-lg font-bold text-gray-700 mb-4">Tasks</h2>
+                             <div class="flex gap-2 mb-4">
+                                <input type="search" id="settings-task-search" placeholder="Search..." class="app-input flex-grow" value="${settingsSearchQuery}">
+                                <select id="settings-sort-select" class="app-input w-auto"><option value="name-asc" ${settingsSortOption==='name-asc'?'selected':''}>A-Z</option><option value="rate-desc" ${settingsSortOption==='rate-desc'?'selected':''}>Rate</option></select>
+                             </div>
+                             <div id="manage-tasks-list" class="space-y-2 mb-4 max-h-[40vh] overflow-y-auto border-t pt-4"></div>
+                            <form id="add-task-form" class="flex gap-2"><input type="text" id="new-task-name" class="app-input flex-grow" placeholder="New Task..." required><input type="number" id="new-task-rate" class="app-input w-24" placeholder="₹"><button type="submit" class="bg-indigo-600 text-white rounded px-4">Add</button></form>
+                        </div>
+                    </div>
+                `;
+                
+                // Attach One-time Listeners
+                document.getElementById('save-schedule-btn').onclick = saveSchedule;
+                
+                document.getElementById('settings-task-search').oninput = (e) => { 
+                    settingsSearchQuery = e.target.value; 
+                    renderSettingsTaskList(); 
+                };
+                
+                document.getElementById('settings-sort-select').onchange = (e) => { 
+                    settingsSortOption = e.target.value; 
+                    renderSettingsTaskList(); 
+                };
+                
+                // Alarm Settings Listeners
+                const alarmSelect = document.getElementById('alarm-sound-select');
+                const fileInput = document.getElementById('custom-alarm-upload');
+                const clearCustomBtn = document.getElementById('clear-custom-alarm');
+                const testBtn = document.getElementById('test-sound-btn');
+                
+                if (alarmSelect) {
+                    alarmSelect.addEventListener('change', (e) => {
+                        const src = e.target.value;
+                        localStorage.setItem('alarmSound', src);
+                        // Also clear custom alarm when picking a default
+                        localStorage.removeItem('customAlarmSound');
+                        document.getElementById('alarm-sound').src = src;
+                        showToast("Alarm sound updated.");
+                    });
+                }
+                
+                if (fileInput) {
+                    fileInput.addEventListener('change', (e) => {
+                        const file = e.target.files[0];
+                        if (file) {
+                            const reader = new FileReader();
+                            reader.onload = function(evt) {
+                                const base64String = evt.target.result;
+                                localStorage.setItem('customAlarmSound', base64String);
+                                document.getElementById('alarm-sound').src = base64String;
+                                showToast("Custom ringtone set.");
+                            };
+                            reader.readAsDataURL(file);
+                        }
+                    });
+                }
+                
+                if (clearCustomBtn) {
+                    clearCustomBtn.addEventListener('click', () => {
+                        localStorage.removeItem('customAlarmSound');
+                        const defaultSrc = alarmSelect.value;
+                        document.getElementById('alarm-sound').src = defaultSrc;
+                        if(fileInput) fileInput.value = '';
+                        showToast("Custom ringtone removed.");
+                    });
+                }
+                
+                if (testBtn) {
+                    testBtn.addEventListener('click', () => {
+                        const audio = document.getElementById('alarm-sound');
+                        const custom = localStorage.getItem('customAlarmSound');
+                        if (custom) audio.src = custom;
+                        
+                        audio.volume = 1.0;
+                        audio.currentTime = 0;
+                        audio.play().catch(e => console.error(e));
+                        setTimeout(() => { audio.pause(); audio.currentTime = 0; }, 5000);
+                    });
+                }
+            }
+            
+            // Always update list contents
+            renderSettingsTaskList();
+        }
+        
+        function renderSettingsTaskList() {
+            const listContainer = document.getElementById('manage-tasks-list');
+            if(!listContainer) return;
+            
             let sortedTasks = [...speedCheckTasks];
             if (settingsSortOption === 'name-asc') sortedTasks.sort((a,b) => (a.name || '').localeCompare(b.name || ''));
             else sortedTasks.sort((a,b) => b.rate - a.rate);
             if (settingsSearchQuery) sortedTasks = sortedTasks.filter(t => t.name.toLowerCase().includes(settingsSearchQuery.toLowerCase()));
-
-            const currentAlarm = localStorage.getItem('alarmSound') || 'https://actions.google.com/sounds/v1/alarms/digital_watch_alarm_long.ogg';
-
-            container.innerHTML = `
-                 <div class="bg-white p-4 rounded-xl shadow-md">
-                     <h2 class="text-lg font-bold text-gray-700 mb-4">Shop Hours</h2>
-                     <div class="space-y-4">
-                         <div><label class="block text-sm font-medium text-gray-700">Open</label><input type="time" id="shop-open-time" class="app-input" value="${shopSchedule.open || '10:00'}"></div>
-                         <div><label class="block text-sm font-medium text-gray-700">Close</label><input type="time" id="shop-close-time" class="app-input" value="${shopSchedule.close || '21:00'}"></div>
-                         <button id="save-schedule-btn" class="w-full bg-indigo-600 text-white font-semibold py-2 px-4 rounded-lg">Save Hours</button>
-                     </div>
-                </div>
-                <div class="bg-white p-4 rounded-xl shadow-md mt-6">
-                     <h2 class="text-lg font-bold text-gray-700 mb-4">Notification Settings</h2>
-                     <div class="space-y-4">
-                         <div>
-                            <label class="block text-sm font-medium text-gray-700">Alarm Sound</label>
-                            <select id="alarm-sound-select" class="app-input">
-                                <option value="https://actions.google.com/sounds/v1/alarms/digital_watch_alarm_long.ogg" ${currentAlarm.includes('digital') ? 'selected' : ''}>Digital Watch</option>
-                                <option value="https://actions.google.com/sounds/v1/alarms/beep_short.ogg" ${currentAlarm.includes('beep') ? 'selected' : ''}>Beep</option>
-                                <option value="https://actions.google.com/sounds/v1/alarms/mechanical_clock_ring.ogg" ${currentAlarm.includes('mechanical') ? 'selected' : ''}>Mechanical Ring</option>
-                            </select>
-                         </div>
-                         <button id="test-sound-btn" class="w-full bg-gray-200 text-gray-800 font-semibold py-2 px-4 rounded-lg hover:bg-gray-300">Test Sound</button>
-                     </div>
-                </div>
-                 <div class="bg-white p-4 rounded-xl shadow-md mt-6">
-                     <h2 class="text-lg font-bold text-gray-700 mb-4">Tasks</h2>
-                     <div class="flex gap-2 mb-4">
-                        <input type="search" id="settings-task-search" placeholder="Search..." class="app-input flex-grow" value="${settingsSearchQuery}">
-                        <select id="settings-sort-select" class="app-input w-auto"><option value="name-asc" ${settingsSortOption==='name-asc'?'selected':''}>A-Z</option><option value="rate-desc" ${settingsSortOption==='rate-desc'?'selected':''}>Rate</option></select>
-                     </div>
-                     <div id="manage-tasks-list" class="space-y-2 mb-4 max-h-[40vh] overflow-y-auto border-t pt-4">
-                        ${sortedTasks.length > 0 ? sortedTasks.map(task => `
-                            <div class="flex items-center justify-between p-2 bg-gray-50 rounded gap-2 border">
-                                <input type="text" value="${task.name}" class="bg-transparent font-medium flex-grow border-b border-transparent focus:border-indigo-500 outline-none task-name-input" data-task-id="${task.id}">
-                                <input type="number" value="${task.rate || 0}" class="text-right border rounded px-2 py-1 w-20 text-sm task-rate-input" data-task-id="${task.id}">
-                                <button class="delete-task-btn p-2 text-red-500 hover:bg-red-50 rounded-full" data-delete-type="task" data-id="${task.id}">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 pointer-events-none" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>
-                                </button>
-                            </div>
-                        `).join('') : '<p class="text-center text-gray-500">No tasks matched.</p>'}
-                    </div>
-                    <form id="add-task-form" class="flex gap-2"><input type="text" id="new-task-name" class="app-input flex-grow" placeholder="New Task..." required><input type="number" id="new-task-rate" class="app-input w-24" placeholder="₹"><button type="submit" class="bg-indigo-600 text-white rounded px-4">Add</button></form>
-                </div>`;
             
-            document.getElementById('save-schedule-btn').onclick = saveSchedule;
-            document.getElementById('settings-task-search').oninput = (e) => { settingsSearchQuery = e.target.value; renderSettingsPage(); };
-            document.getElementById('settings-sort-select').onchange = (e) => { settingsSortOption = e.target.value; renderSettingsPage(); };
+            listContainer.innerHTML = sortedTasks.length > 0 ? sortedTasks.map(task => `
+                <div class="flex items-center justify-between p-2 bg-gray-50 rounded gap-2 border">
+                    <input type="text" value="${task.name}" class="bg-transparent font-medium flex-grow border-b border-transparent focus:border-indigo-500 outline-none task-name-input" data-task-id="${task.id}">
+                    <input type="number" value="${task.rate || 0}" class="text-right border rounded px-2 py-1 w-20 text-sm task-rate-input" data-task-id="${task.id}">
+                    <button class="delete-task-btn p-2 text-red-500 hover:bg-red-50 rounded-full" data-delete-type="task" data-id="${task.id}">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 pointer-events-none" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>
+                    </button>
+                </div>
+            `).join('') : '<p class="text-center text-gray-500">No tasks matched.</p>';
+            
             document.querySelectorAll('.task-name-input').forEach(input => input.onchange = (e) => db.ref(`speedCheckTasks/${e.target.dataset.taskId}/name`).set(e.target.value.trim()));
             document.querySelectorAll('.task-rate-input').forEach(input => input.onchange = (e) => db.ref(`speedCheckTasks/${e.target.dataset.taskId}/rate`).set(parseFloat(e.target.value)||0));
-            
-            // Alarm Settings Listeners
-            const alarmSelect = document.getElementById('alarm-sound-select');
-            const testBtn = document.getElementById('test-sound-btn');
-            
-            if (alarmSelect) {
-                alarmSelect.addEventListener('change', (e) => {
-                    const src = e.target.value;
-                    localStorage.setItem('alarmSound', src);
-                    document.getElementById('alarm-sound').src = src;
-                    showToast("Alarm sound updated.");
-                });
-            }
-            
-            if (testBtn) {
-                testBtn.addEventListener('click', () => {
-                    const audio = document.getElementById('alarm-sound');
-                    audio.currentTime = 0;
-                    audio.play().catch(e => console.error(e));
-                    setTimeout(() => { audio.pause(); audio.currentTime = 0; }, 3000);
-                });
-            }
         }
 
         // --- GLOBAL DELETE LOGIC ---
@@ -1138,64 +1335,6 @@
             document.getElementById('close-report-modal').addEventListener('click', () => closeModal('report-modal'));
         }
 
-        // --- Alarm & Notification Logic ---
-        function playAlarm() {
-            const audio = document.getElementById('alarm-sound');
-            // Ensure src is set from localStorage or default
-            if (!audio.src) {
-                 audio.src = localStorage.getItem('alarmSound') || 'https://actions.google.com/sounds/v1/alarms/digital_watch_alarm_long.ogg';
-            }
-            
-            if (audio) {
-                audio.loop = true;
-                audio.play().catch(e => console.log("Audio play failed (interaction needed):", e));
-                document.getElementById('stop-alarm-btn').classList.remove('hidden');
-            }
-        }
-
-        window.stopAlarm = function() {
-            const audio = document.getElementById('alarm-sound');
-            if (audio) {
-                audio.pause();
-                audio.currentTime = 0;
-            }
-            document.getElementById('stop-alarm-btn').classList.add('hidden');
-        };
-
-        function speakText(text) {
-            if ('speechSynthesis' in window) {
-                const utterance = new SpeechSynthesisUtterance(text);
-                speechSynthesis.speak(utterance);
-            }
-        }
-
-        function checkDeadlines() {
-            const now = Date.now();
-            allOrders.forEach(order => {
-                if (order.estimatedCompletionTimestamp) {
-                    const status = (order.pipelineStatus || order.status || '').toLowerCase();
-                    const isComplete = status === 'completed' || status === 'handover' || status === 'delivered';
-                    
-                    if (!isComplete && now > order.estimatedCompletionTimestamp) {
-                        // Order is overdue and not completed
-                        if (!notifiedOverdueOrders.has(order.id)) {
-                            notifiedOverdueOrders.add(order.id);
-                            
-                            // Trigger Alerts
-                            playAlarm();
-                            speakText(`Alert! Order number ${order.orderNumber} for ${order.customerName} is overdue.`);
-                            showToast(`⚠️ Order #${order.orderNumber} is Overdue!`, true);
-                            
-                            // Refresh schedule page if open to show visual alert
-                            if (document.getElementById('schedule-page').classList.contains('active')) {
-                                renderSchedulePage();
-                            }
-                        }
-                    }
-                }
-            });
-        }
-
         // --- EXPOSE GLOBALS ---
         // Ensure functions called from HTML attributes are available globally
         window.openPerformanceReportModal = openPerformanceReportModal;
@@ -1205,6 +1344,7 @@
         window.stopSpeedCheckTimer = stopSpeedCheckTimer;
         window.setStatsFilter = (filter) => { statsTimeFilter = filter; renderStatsPage(); };
         window.saveSchedule = saveSchedule;
+        window.openOrderListModal = openOrderListModal;
         window.openEtaModal = (orderId) => {
             const order = allOrders.find(o => o.id === orderId);
             if (!order) return;
@@ -1218,11 +1358,33 @@
         };
 
         async function saveOrderPickupTime(orderId, taskName, datetime) {
+            // New Logic: Check against Shop Closing Time
+            const pickupDate = new Date(datetime);
+            const [closeH, closeM] = (shopSchedule.close || '21:00').split(':');
+            const shopCloseDateTime = new Date(pickupDate);
+            shopCloseDateTime.setHours(closeH, closeM, 0);
+            
+            if (pickupDate > shopCloseDateTime) {
+                playAlarm();
+                speakText("Alert! This pickup time is after shop closing hours.");
+                showToast("Warning: Time is after shop closing!", true);
+                // We do NOT block the save, just warn.
+            }
+
+            // Find the correct firebase key. 'orderId' passed from UI is the key from Object.entries
             const orderRef = db.ref(`orders/${orderId}`);
+            
             try {
-                const etaTimestamp = new Date(datetime).getTime();
+                const etaTimestamp = pickupDate.getTime();
                 const minutes = Math.round((etaTimestamp - Date.now()) / 60000);
-                await orderRef.update({ assignedTaskName: taskName, estimatedMinutes: minutes, estimatedCompletionTimestamp: etaTimestamp, pipelineStatus: 'in_progress' });
+                
+                await orderRef.update({ 
+                    assignedTaskName: taskName, 
+                    estimatedMinutes: minutes, 
+                    estimatedCompletionTimestamp: etaTimestamp, 
+                    pipelineStatus: 'in_progress' 
+                });
+                
                 showToast("Order time saved successfully.");
                 
                 // If update successful, potentially remove from notified set if time was extended
@@ -1230,7 +1392,16 @@
                     notifiedOverdueOrders.delete(orderId);
                     stopAlarm();
                 }
-            } catch(err) { showToast("Error saving order time.", true); }
+                
+                // Force a refresh of the schedule view if active to prevent "disappearing" feeling
+                if(document.getElementById('schedule-page').classList.contains('active')) {
+                    renderSchedulePage();
+                }
+
+            } catch(err) { 
+                showToast("Error saving order time.", true); 
+                console.error(err);
+            }
         }
 
         // Initialize
@@ -1241,9 +1412,20 @@
                 
                 // Init alarm sound from localStorage
                 const audio = document.getElementById('alarm-sound');
-                if(audio) audio.src = localStorage.getItem('alarmSound') || 'https://actions.google.com/sounds/v1/alarms/digital_watch_alarm_long.ogg';
+                if(audio) {
+                    const savedSound = localStorage.getItem('customAlarmSound') || localStorage.getItem('alarmSound') || 'https://actions.google.com/sounds/v1/alarms/digital_watch_alarm_long.ogg';
+                    audio.src = savedSound;
+                }
 
                 db.ref('orders').on('value', snapshot => { const data = snapshot.val() || {}; allOrders = Object.entries(data).map(([key, value]) => ({...value, id: key})); runAllUpdaters(); });
+                
+                // Listen to shop schedule changes for the closing logic
+                const today = new Date().toISOString().slice(0, 10);
+                db.ref(`schedules/${today}`).on('value', snapshot => {
+                    const data = snapshot.val();
+                    if (data) shopSchedule = data;
+                });
+
                 db.ref('speedCheckLogs').on('value', snapshot => { 
                     const data = snapshot.val() || {}; 
                     allSpeedCheckLogs = Object.entries(data).map(([key, val]) => ({ id: key, ...val })); 
@@ -1261,8 +1443,10 @@
                          db.ref('speedCheckTasks').update(updates);
                     } else {
                         runAllUpdaters();
-                        // Re-render pages if they are active to show updates
-                        if(document.querySelector('.nav-item.active[data-page="settings"]')) renderSettingsPage();
+                        // Only force re-render if settings page is active AND the task list container is present
+                        if(document.querySelector('.nav-item.active[data-page="settings"]') && document.getElementById('manage-tasks-list')) {
+                            renderSettingsTaskList();
+                        }
                     }
                 });
 
@@ -1292,71 +1476,6 @@
                 switchPage('home'); // Start at home
             } catch(e) { console.error(e); }
         });
-        
-        // --- Modal Function for Home Page Order Lists ---
-        window.openOrderListModal = (title, type) => {
-            const now = Date.now();
-            const startOfDay = new Date().setHours(0,0,0,0);
-            const endOfDay = new Date().setHours(23,59,59,999);
-            
-            const todayOrders = allOrders.filter(o => o.estimatedCompletionTimestamp >= startOfDay && o.estimatedCompletionTimestamp <= endOfDay);
-            
-            let list = [];
-            let headerColor = "bg-gray-100 text-gray-800";
-
-            if (type === 'total') {
-                list = todayOrders;
-                headerColor = "bg-blue-100 text-blue-900";
-            } else if (type === 'completed') {
-                list = todayOrders.filter(o => o.pipelineStatus === 'handover' || o.status === 'Completed' || o.status === 'Delivered');
-                headerColor = "bg-green-100 text-green-900";
-            } else {
-                const incomplete = todayOrders.filter(o => !(o.pipelineStatus === 'handover' || o.status === 'Completed' || o.status === 'Delivered'));
-                if (type === 'overdue') {
-                    list = incomplete.filter(o => o.estimatedCompletionTimestamp < now);
-                    headerColor = "bg-red-100 text-red-900";
-                } else if (type === 'pending') {
-                    list = incomplete.filter(o => o.estimatedCompletionTimestamp >= now);
-                    headerColor = "bg-yellow-100 text-yellow-900";
-                }
-            }
-            
-            list.sort((a,b) => (a.estimatedCompletionTimestamp || 0) - (b.estimatedCompletionTimestamp || 0));
-
-            const listHtml = list.length > 0 ? list.map(o => {
-                const eta = new Date(o.estimatedCompletionTimestamp);
-                const isLate = o.estimatedCompletionTimestamp < now && !(o.pipelineStatus === 'handover' || o.status === 'Completed');
-                
-                return `
-                <div class="p-3 border-b last:border-b-0 flex justify-between items-center ${isLate ? 'bg-red-50' : 'hover:bg-gray-50'}">
-                    <div>
-                        <div class="font-bold text-gray-800">#${o.orderNumber} - ${o.customerName}</div>
-                        <div class="text-xs text-gray-500 flex gap-2">
-                            <span>Task: ${o.assignedTaskName || 'N/A'}</span>
-                            <span class="${isLate ? 'text-red-600 font-bold' : ''}">Due: ${eta.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
-                        </div>
-                    </div>
-                    <div>
-                        ${type !== 'completed' ? `<button onclick="openEtaModal('${o.id}')" class="text-indigo-600 font-semibold text-xs border border-indigo-200 bg-indigo-50 px-2 py-1 rounded">Edit</button>` : '<span class="text-green-600 text-xs font-bold">Done</span>'}
-                    </div>
-                </div>`;
-            }).join('') : '<div class="p-6 text-center text-gray-500">No orders in this category.</div>';
-
-            const modalContent = `
-                <div class="flex flex-col h-[70vh]">
-                    <div class="flex justify-between items-center p-4 rounded-t-xl ${headerColor}">
-                        <h3 class="font-bold text-lg">${title} (${list.length})</h3>
-                        <button id="close-order-list-modal" class="text-2xl opacity-70 hover:opacity-100">&times;</button>
-                    </div>
-                    <div class="flex-grow overflow-y-auto bg-white">
-                        ${listHtml}
-                    </div>
-                </div>
-            `;
-            
-            openModal('order-list-modal', modalContent);
-            document.getElementById('close-order-list-modal').addEventListener('click', () => closeModal('order-list-modal'));
-        }
     </script>
 <script type="module" src="/index.tsx"></script>
 
