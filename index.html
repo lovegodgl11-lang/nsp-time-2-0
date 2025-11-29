@@ -117,7 +117,7 @@
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
         .digital-font { font-family: 'JetBrains Mono', monospace; }
-        .task-card.active-task { border: 2px solid #4f46e5; background-color: #eef2ff; }
+        .task-card.active-task { border: 2px solid #4f46e5; background-color: #eef2ff; transform: scale(1.02); box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); }
         .task-card.paused-task { border: 2px solid #f59e0b; background-color: #fffbeb; }
         
         .app-input {
@@ -128,16 +128,33 @@
         
         /* Utility for clicks */
         .pointer-events-none { pointer-events: none; }
+        
+        /* Overdue Animation */
+        @keyframes pulse-red {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+        .overdue-alert {
+            animation: pulse-red 2s infinite;
+            border-color: #ef4444 !important;
+        }
     </style>
 <link rel="stylesheet" href="/index.css">
 
 
 
+    <!-- Audio Element for Alarm -->
+    <audio id="alarm-sound" preload="auto"></audio>
+
     <div class="main-container">
         <!-- Header -->
         <header class="flex-shrink-0 bg-white shadow-sm px-4 py-3 flex justify-between items-center z-40 border-b border-gray-100">
             <h1 id="header-title" class="text-xl font-bold text-gray-800 tracking-tight">Home</h1>
-            <div id="digital-clock-header" class="text-xs font-mono font-semibold text-gray-500 bg-gray-100 px-2 py-1 rounded">--:--</div>
+            <div class="flex items-center gap-2">
+                <button id="stop-alarm-btn" class="hidden bg-red-600 text-white text-xs font-bold px-3 py-1 rounded-full animate-pulse" onclick="stopAlarm()">STOP ALARM</button>
+                <div id="digital-clock-header" class="text-xs font-mono font-semibold text-gray-500 bg-gray-100 px-2 py-1 rounded">--:--</div>
+            </div>
         </header>
         
         <!-- Content Area -->
@@ -218,6 +235,7 @@
         let speedCheckAverageTimes = {};
         let activeTimers = {}; 
         let globalClockInterval = null;
+        let notifiedOverdueOrders = new Set(); // Track orders we've already alerted on
         
         // UI State
         let statsTimeFilter = 'all';
@@ -311,6 +329,8 @@
         // --- Page Renderers ---
         function renderHomePage() {
             const container = document.getElementById('home-page');
+            
+            // --- Worker Stats Calculations ---
             const today = new Date().setHours(0,0,0,0);
             const todayLogs = allSpeedCheckLogs.filter(log => new Date(log.timestamp).setHours(0,0,0,0) === today).sort((a,b) => a.timestamp - b.timestamp);
             const totalHoursMs = todayLogs.reduce((sum, log) => sum + log.durationMs, 0);
@@ -330,18 +350,63 @@
                 breakTimeMs = Math.max(0, totalTimeSpan - totalHoursMs);
             }
 
+            // --- Order Schedule Calculations ---
+            const now = Date.now();
+            const startOfDay = new Date().setHours(0,0,0,0);
+            const endOfDay = new Date().setHours(23,59,59,999);
+
+            const todayOrders = allOrders.filter(o => o.estimatedCompletionTimestamp >= startOfDay && o.estimatedCompletionTimestamp <= endOfDay);
+            
+            const totalScheduled = todayOrders.length;
+            const completedOrders = todayOrders.filter(o => o.pipelineStatus === 'handover' || o.status === 'Completed' || o.status === 'Delivered');
+            const incompleteOrders = todayOrders.filter(o => !(o.pipelineStatus === 'handover' || o.status === 'Completed' || o.status === 'Delivered'));
+            const overdueOrders = incompleteOrders.filter(o => o.estimatedCompletionTimestamp < now);
+            const pendingOrders = incompleteOrders.filter(o => o.estimatedCompletionTimestamp >= now);
+
             container.innerHTML = `
-                <div class="grid grid-cols-2 gap-4">
-                    <div class="bg-indigo-600 text-white p-4 rounded-xl shadow-md text-center">
-                        <p class="text-xs font-medium opacity-80">First Start</p>
-                        <p class="text-xl font-bold mt-1">${firstStartTime}</p>
-                    </div>
-                    <div class="bg-purple-600 text-white p-4 rounded-xl shadow-md text-center">
-                        <p class="text-xs font-medium opacity-80">Last Stop</p>
-                        <p class="text-xl font-bold mt-1">${lastStopTime}</p>
+                <!-- Order Schedule Dashboard -->
+                <div class="mb-6">
+                    <h2 class="text-lg font-bold text-gray-700 mb-3 flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                        Today's Schedule
+                    </h2>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div onclick="openOrderListModal('Total Scheduled', 'total')" class="bg-blue-100 p-4 rounded-xl shadow-sm text-center cursor-pointer active:scale-95 transition-transform border border-blue-200">
+                            <p class="text-blue-800 text-xs font-bold uppercase tracking-wider">Total</p>
+                            <p class="text-3xl font-black text-blue-900 mt-1">${totalScheduled}</p>
+                        </div>
+                        <div onclick="openOrderListModal('Pending', 'pending')" class="bg-yellow-100 p-4 rounded-xl shadow-sm text-center cursor-pointer active:scale-95 transition-transform border border-yellow-200">
+                            <p class="text-yellow-800 text-xs font-bold uppercase tracking-wider">Pending</p>
+                            <p class="text-3xl font-black text-yellow-900 mt-1">${pendingOrders.length}</p>
+                        </div>
+                        <div onclick="openOrderListModal('Overdue', 'overdue')" class="bg-red-100 p-4 rounded-xl shadow-sm text-center cursor-pointer active:scale-95 transition-transform border border-red-200 relative overflow-hidden">
+                            ${overdueOrders.length > 0 ? '<div class="absolute top-0 right-0 w-3 h-3 bg-red-500 rounded-full animate-ping"></div>' : ''}
+                            <p class="text-red-800 text-xs font-bold uppercase tracking-wider">Overdue</p>
+                            <p class="text-3xl font-black text-red-900 mt-1">${overdueOrders.length}</p>
+                        </div>
+                        <div onclick="openOrderListModal('Completed', 'completed')" class="bg-green-100 p-4 rounded-xl shadow-sm text-center cursor-pointer active:scale-95 transition-transform border border-green-200">
+                            <p class="text-green-800 text-xs font-bold uppercase tracking-wider">Done</p>
+                            <p class="text-3xl font-black text-green-900 mt-1">${completedOrders.length}</p>
+                        </div>
                     </div>
                 </div>
-                <div class="bg-white p-4 rounded-xl shadow-md mt-4">
+
+                <!-- Worker Performance Stats -->
+                <h2 class="text-lg font-bold text-gray-700 mb-3 flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    Work Stats
+                </h2>
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <div class="bg-white p-4 rounded-xl shadow-md text-center">
+                        <p class="text-xs font-medium text-gray-500">First Start</p>
+                        <p class="text-lg font-bold text-gray-800 mt-1">${firstStartTime}</p>
+                    </div>
+                    <div class="bg-white p-4 rounded-xl shadow-md text-center">
+                        <p class="text-xs font-medium text-gray-500">Last Stop</p>
+                        <p class="text-lg font-bold text-gray-800 mt-1">${lastStopTime}</p>
+                    </div>
+                </div>
+                <div class="bg-white p-4 rounded-xl shadow-md mb-4">
                     <div class="grid grid-cols-2 gap-4 text-center divide-x">
                         <div>
                             <p class="text-sm text-gray-500">Total Work</p>
@@ -357,7 +422,7 @@
                          <p class="text-3xl font-extrabold text-gray-800 mt-1">₹${totalIncome.toFixed(0)}</p>
                     </div>
                 </div>
-                <button onclick="openPerformanceReportModal()" class="w-full bg-gray-800 text-white font-bold py-3 px-4 rounded-xl shadow-md mt-4 flex justify-center items-center gap-2 hover:bg-gray-900 transition-colors">
+                <button onclick="openPerformanceReportModal()" class="w-full bg-gray-800 text-white font-bold py-3 px-4 rounded-xl shadow-md flex justify-center items-center gap-2 hover:bg-gray-900 transition-colors">
                     Generate Performance Report
                 </button>
                 <div class="mt-6">
@@ -380,10 +445,78 @@
                     </div>
                 </div>
             `;
+            
+            // Re-attach global handlers
             window.openPerformanceReportModal = openPerformanceReportModal;
+            window.openOrderListModal = openOrderListModal;
+        }
+        
+        // --- Order List Modal for Home Page ---
+        function openOrderListModal(title, type) {
+            const now = Date.now();
+            const startOfDay = new Date().setHours(0,0,0,0);
+            const endOfDay = new Date().setHours(23,59,59,999);
+            
+            const todayOrders = allOrders.filter(o => o.estimatedCompletionTimestamp >= startOfDay && o.estimatedCompletionTimestamp <= endOfDay);
+            
+            let list = [];
+            let headerColor = "bg-gray-100 text-gray-800";
+
+            if (type === 'total') {
+                list = todayOrders;
+                headerColor = "bg-blue-100 text-blue-900";
+            } else if (type === 'completed') {
+                list = todayOrders.filter(o => o.pipelineStatus === 'handover' || o.status === 'Completed' || o.status === 'Delivered');
+                headerColor = "bg-green-100 text-green-900";
+            } else {
+                const incomplete = todayOrders.filter(o => !(o.pipelineStatus === 'handover' || o.status === 'Completed' || o.status === 'Delivered'));
+                if (type === 'overdue') {
+                    list = incomplete.filter(o => o.estimatedCompletionTimestamp < now);
+                    headerColor = "bg-red-100 text-red-900";
+                } else if (type === 'pending') {
+                    list = incomplete.filter(o => o.estimatedCompletionTimestamp >= now);
+                    headerColor = "bg-yellow-100 text-yellow-900";
+                }
+            }
+            
+            list.sort((a,b) => (a.estimatedCompletionTimestamp || 0) - (b.estimatedCompletionTimestamp || 0));
+
+            const listHtml = list.length > 0 ? list.map(o => {
+                const eta = new Date(o.estimatedCompletionTimestamp);
+                const isLate = o.estimatedCompletionTimestamp < now && !(o.pipelineStatus === 'handover' || o.status === 'Completed');
+                
+                return `
+                <div class="p-3 border-b last:border-b-0 flex justify-between items-center ${isLate ? 'bg-red-50' : 'hover:bg-gray-50'}">
+                    <div>
+                        <div class="font-bold text-gray-800">#${o.orderNumber} - ${o.customerName}</div>
+                        <div class="text-xs text-gray-500 flex gap-2">
+                            <span>Task: ${o.assignedTaskName || 'N/A'}</span>
+                            <span class="${isLate ? 'text-red-600 font-bold' : ''}">Due: ${eta.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+                        </div>
+                    </div>
+                    <div>
+                        ${type !== 'completed' ? `<button onclick="openEtaModal('${o.id}')" class="text-indigo-600 font-semibold text-xs border border-indigo-200 bg-indigo-50 px-2 py-1 rounded">Edit</button>` : '<span class="text-green-600 text-xs font-bold">Done</span>'}
+                    </div>
+                </div>`;
+            }).join('') : '<div class="p-6 text-center text-gray-500">No orders in this category.</div>';
+
+            const modalContent = `
+                <div class="flex flex-col h-[70vh]">
+                    <div class="flex justify-between items-center p-4 rounded-t-xl ${headerColor}">
+                        <h3 class="font-bold text-lg">${title} (${list.length})</h3>
+                        <button id="close-order-list-modal" class="text-2xl opacity-70 hover:opacity-100">&times;</button>
+                    </div>
+                    <div class="flex-grow overflow-y-auto bg-white">
+                        ${listHtml}
+                    </div>
+                </div>
+            `;
+            
+            openModal('order-list-modal', modalContent);
+            document.getElementById('close-order-list-modal').addEventListener('click', () => closeModal('order-list-modal'));
         }
 
-        // --- Schedule Page (Single Definition) ---
+        // --- Schedule Page ---
         function renderSchedulePage() {
             const container = document.getElementById('schedule-page');
             
@@ -448,7 +581,7 @@
                                 const remainingMs = eta - Date.now();
                                 const isOverdue = remainingMs < 0;
                                 return `
-                                <div class="bg-white p-3 rounded-lg shadow-sm border-l-4 ${isOverdue ? 'border-red-500' : 'border-blue-500'}">
+                                <div class="bg-white p-3 rounded-lg shadow-sm border-l-4 ${isOverdue ? 'border-red-500 overdue-alert' : 'border-blue-500'}">
                                     <div class="flex justify-between items-center">
                                         <p class="font-semibold">#${order.orderNumber} - ${order.customerName}</p>
                                         <div class="flex items-center gap-2">
@@ -480,37 +613,57 @@
                 if (unscheduleBtn) {
                     const orderId = unscheduleBtn.dataset.orderId;
                     showDeleteConfirm(() => {
-                        db.ref(`orders/${orderId}`).update({ pipelineStatus: 'new', assignedTaskName: null, estimatedCompletionTimestamp: null }).then(() => showToast("Order unscheduled."));
+                        db.ref(`orders/${orderId}`).update({ pipelineStatus: 'new', assignedTaskName: null, estimatedCompletionTimestamp: null }).then(() => {
+                            showToast("Order unscheduled.");
+                            notifiedOverdueOrders.delete(orderId); // Reset notification status
+                        });
                     }, "Unschedule Order?", "This will remove the deadline and move it back to the 'To Schedule' list.");
                 }
             });
         }
 
-        // --- Timer Page (Single Definition) ---
+        // --- Timer Page ---
         function renderTimerPage() { 
              const container = document.getElementById('timer-page');
              let sortedTasks = [...speedCheckTasks].sort((a,b) => (a.name || '').localeCompare(b.name || ''));
              if (timerSearchQuery) sortedTasks = sortedTasks.filter(t => t.name.toLowerCase().includes(timerSearchQuery.toLowerCase()));
              
              const tasksHtml = sortedTasks.map(task => {
+                // IMPORTANT: activeTimers stores data keyed by task.id.
+                // We must check if THIS SPECIFIC task is the one in the object.
                 const timerState = activeTimers[task.id];
                 const isActive = timerState && !timerState.isPaused;
                 const isPaused = timerState && timerState.isPaused;
+                
                 let timerDisplay = "00:00:00";
                 if (timerState) {
                     const elapsed = timerState.accumulatedMs + (timerState.isPaused ? 0 : (Date.now() - timerState.startTime));
                     timerDisplay = formatMilliseconds(elapsed, true);
                 }
+                
                 let cardClass = "bg-white border border-gray-200";
-                if (isActive) cardClass = "bg-green-50 border-green-500 active-task";
-                if (isPaused) cardClass = "bg-yellow-50 border-yellow-500 paused-task";
+                let statusBadge = "";
+                
+                if (isActive) {
+                    cardClass = "bg-green-50 border-green-500 active-task shadow-lg transform scale-[1.01]";
+                    statusBadge = `<span class="bg-green-100 text-green-800 text-xs font-bold px-2 py-1 rounded">RUNNING</span>`;
+                } else if (isPaused) {
+                    cardClass = "bg-yellow-50 border-yellow-500 paused-task";
+                    statusBadge = `<span class="bg-yellow-100 text-yellow-800 text-xs font-bold px-2 py-1 rounded">PAUSED</span>`;
+                } else {
+                    cardClass = "bg-white border border-gray-200 opacity-90";
+                }
+                
                 const escapedTaskName = task.name.replace(/'/g, "\\'"); 
 
                 return `
                 <div class="${cardClass} p-4 rounded-xl shadow-sm flex flex-col gap-3 transition-all duration-300" id="task-card-${task.id}">
                     <div class="flex justify-between items-start">
                         <div>
-                            <h3 class="font-bold text-gray-800 text-lg">${task.name}</h3>
+                            <div class="flex items-center gap-2 mb-1">
+                                <h3 class="font-bold text-gray-800 text-lg">${task.name}</h3>
+                                ${statusBadge}
+                            </div>
                             <p class="text-sm text-gray-500">Rate: ₹${task.rate || 0}</p>
                         </div>
                         <div class="text-right">
@@ -527,7 +680,7 @@
                         <button class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 rounded-lg ${(isActive || isPaused) ? '' : 'opacity-50 cursor-not-allowed'}" 
                                 onclick="${(isActive || isPaused) ? `stopSpeedCheckTimer('${task.id}')` : ''}" 
                                 ${(isActive || isPaused) ? '' : 'disabled'}>
-                            Stop
+                            Stop & Save
                         </button>
                     </div>
                 </div>`;
@@ -552,7 +705,6 @@
             startClock();
         }
         
-        // --- Clock Function (Single Definition) ---
         function startClock() {
             if (globalClockInterval) clearInterval(globalClockInterval);
             const updateClock = () => {
@@ -565,6 +717,9 @@
                 if (headerClock) headerClock.textContent = timeStr;
                 if (pageClock) pageClock.textContent = timeStr;
                 if (pageDate) pageDate.textContent = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+                
+                // Check deadlines periodically
+                checkDeadlines();
             };
             updateClock();
             globalClockInterval = setInterval(updateClock, 1000);
@@ -703,6 +858,75 @@
             }
         }
 
+        // --- TIMER LOGIC (UPDATED: Single Tasking) ---
+        function startSpeedCheckTimer(taskId, taskName) {
+            // Force pause on any OTHER active task to prevent multi-tasking confusion
+            Object.keys(activeTimers).forEach(id => {
+                if (id !== taskId && activeTimers[id] && !activeTimers[id].isPaused) {
+                    pauseSpeedCheckTimer(id);
+                }
+            });
+
+            if (activeTimers[taskId] && !activeTimers[taskId].isPaused) return; 
+            
+            activeTimers[taskId] = { 
+                taskId: taskId, 
+                taskName: taskName, 
+                startTime: Date.now(), 
+                accumulatedMs: activeTimers[taskId] ? activeTimers[taskId].accumulatedMs : 0, 
+                isPaused: false, 
+                intervalId: setInterval(() => updateTaskTimerDisplay(taskId), 1000) 
+            };
+            
+            renderTimerPage();
+        }
+
+        function pauseSpeedCheckTimer(taskId) {
+            const timer = activeTimers[taskId];
+            if (timer && !timer.isPaused) { 
+                clearInterval(timer.intervalId); 
+                timer.intervalId = null; 
+                timer.isPaused = true; 
+                timer.accumulatedMs += (Date.now() - timer.startTime); 
+                renderTimerPage(); 
+            }
+        }
+
+        async function stopSpeedCheckTimer(taskId) {
+            const timer = activeTimers[taskId];
+            if (!timer) return;
+            if (timer.intervalId) clearInterval(timer.intervalId);
+            
+            const durationMs = timer.isPaused ? timer.accumulatedMs : timer.accumulatedMs + (Date.now() - timer.startTime);
+            const task = speedCheckTasks.find(t => t.id === taskId);
+            
+            const logEntry = { 
+                taskName: timer.taskName, 
+                durationMs, 
+                rate: task ? (task.rate || 0) : 0, 
+                timestamp: firebase.database.ServerValue.TIMESTAMP 
+            };
+            
+            try { 
+                await db.ref('speedCheckLogs').push(logEntry); 
+                showToast(`Saved: ${formatMilliseconds(durationMs, true)} for "${timer.taskName}".`); 
+            } catch (err) { 
+                showToast("Error saving log.", true); 
+            }
+            
+            delete activeTimers[taskId];
+            renderTimerPage();
+        }
+
+        function updateTaskTimerDisplay(taskId) {
+            const timer = activeTimers[taskId];
+            const el = document.getElementById(`timer-display-${taskId}`);
+            if (timer && el) { 
+                const elapsed = timer.accumulatedMs + (Date.now() - timer.startTime); 
+                el.textContent = formatMilliseconds(elapsed, true); 
+            }
+        }
+
         // --- Settings Page ---
         function renderSettingsPage() {
             const container = document.getElementById('settings-page');
@@ -711,6 +935,8 @@
             else sortedTasks.sort((a,b) => b.rate - a.rate);
             if (settingsSearchQuery) sortedTasks = sortedTasks.filter(t => t.name.toLowerCase().includes(settingsSearchQuery.toLowerCase()));
 
+            const currentAlarm = localStorage.getItem('alarmSound') || 'https://actions.google.com/sounds/v1/alarms/digital_watch_alarm_long.ogg';
+
             container.innerHTML = `
                  <div class="bg-white p-4 rounded-xl shadow-md">
                      <h2 class="text-lg font-bold text-gray-700 mb-4">Shop Hours</h2>
@@ -718,6 +944,20 @@
                          <div><label class="block text-sm font-medium text-gray-700">Open</label><input type="time" id="shop-open-time" class="app-input" value="${shopSchedule.open || '10:00'}"></div>
                          <div><label class="block text-sm font-medium text-gray-700">Close</label><input type="time" id="shop-close-time" class="app-input" value="${shopSchedule.close || '21:00'}"></div>
                          <button id="save-schedule-btn" class="w-full bg-indigo-600 text-white font-semibold py-2 px-4 rounded-lg">Save Hours</button>
+                     </div>
+                </div>
+                <div class="bg-white p-4 rounded-xl shadow-md mt-6">
+                     <h2 class="text-lg font-bold text-gray-700 mb-4">Notification Settings</h2>
+                     <div class="space-y-4">
+                         <div>
+                            <label class="block text-sm font-medium text-gray-700">Alarm Sound</label>
+                            <select id="alarm-sound-select" class="app-input">
+                                <option value="https://actions.google.com/sounds/v1/alarms/digital_watch_alarm_long.ogg" ${currentAlarm.includes('digital') ? 'selected' : ''}>Digital Watch</option>
+                                <option value="https://actions.google.com/sounds/v1/alarms/beep_short.ogg" ${currentAlarm.includes('beep') ? 'selected' : ''}>Beep</option>
+                                <option value="https://actions.google.com/sounds/v1/alarms/mechanical_clock_ring.ogg" ${currentAlarm.includes('mechanical') ? 'selected' : ''}>Mechanical Ring</option>
+                            </select>
+                         </div>
+                         <button id="test-sound-btn" class="w-full bg-gray-200 text-gray-800 font-semibold py-2 px-4 rounded-lg hover:bg-gray-300">Test Sound</button>
                      </div>
                 </div>
                  <div class="bg-white p-4 rounded-xl shadow-md mt-6">
@@ -745,6 +985,28 @@
             document.getElementById('settings-sort-select').onchange = (e) => { settingsSortOption = e.target.value; renderSettingsPage(); };
             document.querySelectorAll('.task-name-input').forEach(input => input.onchange = (e) => db.ref(`speedCheckTasks/${e.target.dataset.taskId}/name`).set(e.target.value.trim()));
             document.querySelectorAll('.task-rate-input').forEach(input => input.onchange = (e) => db.ref(`speedCheckTasks/${e.target.dataset.taskId}/rate`).set(parseFloat(e.target.value)||0));
+            
+            // Alarm Settings Listeners
+            const alarmSelect = document.getElementById('alarm-sound-select');
+            const testBtn = document.getElementById('test-sound-btn');
+            
+            if (alarmSelect) {
+                alarmSelect.addEventListener('change', (e) => {
+                    const src = e.target.value;
+                    localStorage.setItem('alarmSound', src);
+                    document.getElementById('alarm-sound').src = src;
+                    showToast("Alarm sound updated.");
+                });
+            }
+            
+            if (testBtn) {
+                testBtn.addEventListener('click', () => {
+                    const audio = document.getElementById('alarm-sound');
+                    audio.currentTime = 0;
+                    audio.play().catch(e => console.error(e));
+                    setTimeout(() => { audio.pause(); audio.currentTime = 0; }, 3000);
+                });
+            }
         }
 
         // --- GLOBAL DELETE LOGIC ---
@@ -876,34 +1138,62 @@
             document.getElementById('close-report-modal').addEventListener('click', () => closeModal('report-modal'));
         }
 
-        // --- TIMER LOGIC ---
-        function startSpeedCheckTimer(taskId, taskName) {
-            if (activeTimers[taskId] && !activeTimers[taskId].isPaused) return; 
-            activeTimers[taskId] = { taskId: taskId, taskName: taskName, startTime: Date.now(), accumulatedMs: activeTimers[taskId] ? activeTimers[taskId].accumulatedMs : 0, isPaused: false, intervalId: setInterval(() => updateTaskTimerDisplay(taskId), 1000) };
-            renderTimerPage();
+        // --- Alarm & Notification Logic ---
+        function playAlarm() {
+            const audio = document.getElementById('alarm-sound');
+            // Ensure src is set from localStorage or default
+            if (!audio.src) {
+                 audio.src = localStorage.getItem('alarmSound') || 'https://actions.google.com/sounds/v1/alarms/digital_watch_alarm_long.ogg';
+            }
+            
+            if (audio) {
+                audio.loop = true;
+                audio.play().catch(e => console.log("Audio play failed (interaction needed):", e));
+                document.getElementById('stop-alarm-btn').classList.remove('hidden');
+            }
         }
 
-        function pauseSpeedCheckTimer(taskId) {
-            const timer = activeTimers[taskId];
-            if (timer && !timer.isPaused) { clearInterval(timer.intervalId); timer.intervalId = null; timer.isPaused = true; timer.accumulatedMs += (Date.now() - timer.startTime); renderTimerPage(); }
+        window.stopAlarm = function() {
+            const audio = document.getElementById('alarm-sound');
+            if (audio) {
+                audio.pause();
+                audio.currentTime = 0;
+            }
+            document.getElementById('stop-alarm-btn').classList.add('hidden');
+        };
+
+        function speakText(text) {
+            if ('speechSynthesis' in window) {
+                const utterance = new SpeechSynthesisUtterance(text);
+                speechSynthesis.speak(utterance);
+            }
         }
 
-        async function stopSpeedCheckTimer(taskId) {
-            const timer = activeTimers[taskId];
-            if (!timer) return;
-            if (timer.intervalId) clearInterval(timer.intervalId);
-            const durationMs = timer.isPaused ? timer.accumulatedMs : timer.accumulatedMs + (Date.now() - timer.startTime);
-            const task = speedCheckTasks.find(t => t.id === taskId);
-            const logEntry = { taskName: timer.taskName, durationMs, rate: task ? (task.rate || 0) : 0, timestamp: firebase.database.ServerValue.TIMESTAMP };
-            try { await db.ref('speedCheckLogs').push(logEntry); showToast(`Logged ${formatMilliseconds(durationMs, true)} for "${timer.taskName}".`); } catch (err) { showToast("Error saving log.", true); }
-            delete activeTimers[taskId];
-            renderTimerPage();
-        }
-
-        function updateTaskTimerDisplay(taskId) {
-            const timer = activeTimers[taskId];
-            const el = document.getElementById(`timer-display-${taskId}`);
-            if (timer && el) { const elapsed = timer.accumulatedMs + (Date.now() - timer.startTime); el.textContent = formatMilliseconds(elapsed, true); }
+        function checkDeadlines() {
+            const now = Date.now();
+            allOrders.forEach(order => {
+                if (order.estimatedCompletionTimestamp) {
+                    const status = (order.pipelineStatus || order.status || '').toLowerCase();
+                    const isComplete = status === 'completed' || status === 'handover' || status === 'delivered';
+                    
+                    if (!isComplete && now > order.estimatedCompletionTimestamp) {
+                        // Order is overdue and not completed
+                        if (!notifiedOverdueOrders.has(order.id)) {
+                            notifiedOverdueOrders.add(order.id);
+                            
+                            // Trigger Alerts
+                            playAlarm();
+                            speakText(`Alert! Order number ${order.orderNumber} for ${order.customerName} is overdue.`);
+                            showToast(`⚠️ Order #${order.orderNumber} is Overdue!`, true);
+                            
+                            // Refresh schedule page if open to show visual alert
+                            if (document.getElementById('schedule-page').classList.contains('active')) {
+                                renderSchedulePage();
+                            }
+                        }
+                    }
+                }
+            });
         }
 
         // --- EXPOSE GLOBALS ---
@@ -934,6 +1224,12 @@
                 const minutes = Math.round((etaTimestamp - Date.now()) / 60000);
                 await orderRef.update({ assignedTaskName: taskName, estimatedMinutes: minutes, estimatedCompletionTimestamp: etaTimestamp, pipelineStatus: 'in_progress' });
                 showToast("Order time saved successfully.");
+                
+                // If update successful, potentially remove from notified set if time was extended
+                if (notifiedOverdueOrders.has(orderId)) {
+                    notifiedOverdueOrders.delete(orderId);
+                    stopAlarm();
+                }
             } catch(err) { showToast("Error saving order time.", true); }
         }
 
@@ -942,6 +1238,10 @@
             try {
                 if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
                 db = firebase.database();
+                
+                // Init alarm sound from localStorage
+                const audio = document.getElementById('alarm-sound');
+                if(audio) audio.src = localStorage.getItem('alarmSound') || 'https://actions.google.com/sounds/v1/alarms/digital_watch_alarm_long.ogg';
 
                 db.ref('orders').on('value', snapshot => { const data = snapshot.val() || {}; allOrders = Object.entries(data).map(([key, value]) => ({...value, id: key})); runAllUpdaters(); });
                 db.ref('speedCheckLogs').on('value', snapshot => { 
@@ -952,7 +1252,9 @@
                 
                 db.ref('speedCheckTasks').on('value', snapshot => {
                     const data = snapshot.val() || {};
-                    speedCheckTasks = Object.values(data);
+                    // KEY FIX: Map entries to ensure ID is present in the object
+                    speedCheckTasks = Object.entries(data).map(([key, val]) => ({ id: key, ...val }));
+                    
                     if (speedCheckTasks.length === 0 && !snapshot.exists()) {
                          const updates = {};
                          INITIAL_SPEED_CHECK_TASKS.forEach(name => { const newRef = db.ref('speedCheckTasks').push(); updates[newRef.key] = { id: newRef.key, name: name, rate: 0 }; });
@@ -990,6 +1292,71 @@
                 switchPage('home'); // Start at home
             } catch(e) { console.error(e); }
         });
+        
+        // --- Modal Function for Home Page Order Lists ---
+        window.openOrderListModal = (title, type) => {
+            const now = Date.now();
+            const startOfDay = new Date().setHours(0,0,0,0);
+            const endOfDay = new Date().setHours(23,59,59,999);
+            
+            const todayOrders = allOrders.filter(o => o.estimatedCompletionTimestamp >= startOfDay && o.estimatedCompletionTimestamp <= endOfDay);
+            
+            let list = [];
+            let headerColor = "bg-gray-100 text-gray-800";
+
+            if (type === 'total') {
+                list = todayOrders;
+                headerColor = "bg-blue-100 text-blue-900";
+            } else if (type === 'completed') {
+                list = todayOrders.filter(o => o.pipelineStatus === 'handover' || o.status === 'Completed' || o.status === 'Delivered');
+                headerColor = "bg-green-100 text-green-900";
+            } else {
+                const incomplete = todayOrders.filter(o => !(o.pipelineStatus === 'handover' || o.status === 'Completed' || o.status === 'Delivered'));
+                if (type === 'overdue') {
+                    list = incomplete.filter(o => o.estimatedCompletionTimestamp < now);
+                    headerColor = "bg-red-100 text-red-900";
+                } else if (type === 'pending') {
+                    list = incomplete.filter(o => o.estimatedCompletionTimestamp >= now);
+                    headerColor = "bg-yellow-100 text-yellow-900";
+                }
+            }
+            
+            list.sort((a,b) => (a.estimatedCompletionTimestamp || 0) - (b.estimatedCompletionTimestamp || 0));
+
+            const listHtml = list.length > 0 ? list.map(o => {
+                const eta = new Date(o.estimatedCompletionTimestamp);
+                const isLate = o.estimatedCompletionTimestamp < now && !(o.pipelineStatus === 'handover' || o.status === 'Completed');
+                
+                return `
+                <div class="p-3 border-b last:border-b-0 flex justify-between items-center ${isLate ? 'bg-red-50' : 'hover:bg-gray-50'}">
+                    <div>
+                        <div class="font-bold text-gray-800">#${o.orderNumber} - ${o.customerName}</div>
+                        <div class="text-xs text-gray-500 flex gap-2">
+                            <span>Task: ${o.assignedTaskName || 'N/A'}</span>
+                            <span class="${isLate ? 'text-red-600 font-bold' : ''}">Due: ${eta.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+                        </div>
+                    </div>
+                    <div>
+                        ${type !== 'completed' ? `<button onclick="openEtaModal('${o.id}')" class="text-indigo-600 font-semibold text-xs border border-indigo-200 bg-indigo-50 px-2 py-1 rounded">Edit</button>` : '<span class="text-green-600 text-xs font-bold">Done</span>'}
+                    </div>
+                </div>`;
+            }).join('') : '<div class="p-6 text-center text-gray-500">No orders in this category.</div>';
+
+            const modalContent = `
+                <div class="flex flex-col h-[70vh]">
+                    <div class="flex justify-between items-center p-4 rounded-t-xl ${headerColor}">
+                        <h3 class="font-bold text-lg">${title} (${list.length})</h3>
+                        <button id="close-order-list-modal" class="text-2xl opacity-70 hover:opacity-100">&times;</button>
+                    </div>
+                    <div class="flex-grow overflow-y-auto bg-white">
+                        ${listHtml}
+                    </div>
+                </div>
+            `;
+            
+            openModal('order-list-modal', modalContent);
+            document.getElementById('close-order-list-modal').addEventListener('click', () => closeModal('order-list-modal'));
+        }
     </script>
 <script type="module" src="/index.tsx"></script>
 
