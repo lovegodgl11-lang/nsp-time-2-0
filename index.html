@@ -491,11 +491,29 @@
             });
             document.getElementById('modals-container').appendChild(modal);
         }
+
         function closeModal(id) {
             const modal = document.getElementById(id);
             if (modal) {
-                modal.querySelector('.modal-content').classList.add('translate-y-4', 'opacity-0');
-                modal.addEventListener('transitionend', () => modal.remove(), { once: true });
+                const modalContent = modal.querySelector('.modal-content');
+                if (modalContent) {
+                    const removeModal = () => {
+                        if (modal.parentNode) {
+                            modal.remove();
+                        }
+                        modalContent.removeEventListener('transitionend', removeModal);
+                    };
+                    modalContent.addEventListener('transitionend', removeModal);
+                    
+                    // Trigger exit animation by applying final state styles inline to override CSS specificity
+                    modalContent.style.transform = 'translateY(20px)';
+                    modalContent.style.opacity = '0';
+                    
+                    // Fallback in case transitionend doesn't fire
+                    setTimeout(removeModal, 300);
+                } else {
+                    modal.remove(); // Fallback if there's no modal content
+                }
             }
         }
 
