@@ -21,18 +21,21 @@
     
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500&display=swap');
+
         :root {
-            --bg-main: #f3f4f6; /* gray-100 */
+            --bg-main: #f3f4f6;
             --bg-card: #ffffff;
-            --text-primary: #111827; /* gray-900 */
-            --text-secondary: #4b5563; /* gray-600 */
-            --primary: #4f46e5; /* indigo-600 */
-            --primary-hover: #4338ca; /* indigo-700 */
-            --primary-light: #eef2ff; /* indigo-50 */
-            --border-color: #e5e7eb; /* gray-200 */
+            --text-primary: #111827;
+            --text-secondary: #4b5563;
+            --primary: #4f46e5;
+            --primary-hover: #4338ca;
+            --primary-light: #eef2ff;
+            --border-color: #e5e7eb;
         }
         html, body {
-             overscroll-behavior-y: contain; /* Prevents pull-to-refresh */
+             overscroll-behavior-y: contain; 
+             -webkit-tap-highlight-color: transparent;
         }
         body {
             font-family: 'Inter', sans-serif;
@@ -41,8 +44,7 @@
         }
         
         .main-container {
-            height: 100vh;
-            height: 100dvh; /* Dynamic viewport height */
+            height: 100dvh;
             display: flex;
             flex-direction: column;
             overflow: hidden;
@@ -55,20 +57,20 @@
             padding-bottom: calc(80px + env(safe-area-inset-bottom));
         }
 
-        .page { display: none; }
-        .page.active { display: block; }
+        .page { display: none; opacity: 0; transition: opacity 0.2s ease-in-out; }
+        .page.active { display: block; opacity: 1; }
         
         /* Bottom Navigation */
         .bottom-nav {
             position: fixed;
             bottom: 0; left: 0; right: 0;
             height: calc(70px + env(safe-area-inset-bottom));
-            padding-bottom: env(safe-area-inset-bottom));
+            padding-bottom: env(safe-area-inset-bottom);
             background-color: var(--bg-card);
             border-top: 1px solid var(--border-color);
             display: flex;
             justify-content: space-around;
-            z-index: 100;
+            z-index: 50;
         }
         .nav-item {
             flex-grow: 1;
@@ -80,14 +82,31 @@
             color: var(--text-secondary);
             font-size: 0.75rem;
             font-weight: 500;
-            transition: color 0.2s ease;
+            transition: all 0.2s ease;
         }
-        .nav-item.active { color: var(--primary); font-weight: 600; }
+        .nav-item.active { color: var(--primary); font-weight: 600; transform: translateY(-2px); }
         
-        /* Modals */
-        .modal-overlay { background-color: rgba(0,0,0,0.5); }
-        .modal-content { transform: translateY(20px); opacity: 0; transition: all 0.2s ease-out; }
-        .modal-overlay.flex .modal-content { transform: translateY(0); opacity: 1; }
+        /* Modals & Overlays */
+        .modal-overlay { 
+            background-color: rgba(0,0,0,0.6); 
+            backdrop-filter: blur(2px);
+            opacity: 0; 
+            pointer-events: none; 
+            transition: opacity 0.3s ease; 
+        }
+        .modal-overlay.active { 
+            opacity: 1; 
+            pointer-events: auto; 
+        }
+        .modal-content { 
+            transform: scale(0.95) translateY(10px); 
+            opacity: 0; 
+            transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); 
+        }
+        .modal-overlay.active .modal-content { 
+            transform: scale(1) translateY(0); 
+            opacity: 1; 
+        }
         
         .loader {
             width: 20px; height: 20px; border: 2px solid currentColor;
@@ -96,6 +115,19 @@
             animation: spin 1s linear infinite;
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .digital-font { font-family: 'JetBrains Mono', monospace; }
+        .task-card.active-task { border: 2px solid #4f46e5; background-color: #eef2ff; }
+        .task-card.paused-task { border: 2px solid #f59e0b; background-color: #fffbeb; }
+        
+        .app-input {
+            width: 100%; padding: 0.6rem; border: 1px solid var(--border-color);
+            border-radius: 0.5rem; font-size: 0.9rem; transition: border-color 0.2s;
+        }
+        .app-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-light); }
+        
+        /* Utility for clicks */
+        .pointer-events-none { pointer-events: none; }
     </style>
 <link rel="stylesheet" href="/index.css">
 
@@ -103,51 +135,72 @@
 
     <div class="main-container">
         <!-- Header -->
-        <header class="flex-shrink-0 bg-white shadow-sm p-4 flex justify-between items-center z-50">
-            <h1 id="header-title" class="text-xl font-bold text-gray-800">Home</h1>
+        <header class="flex-shrink-0 bg-white shadow-sm px-4 py-3 flex justify-between items-center z-40 border-b border-gray-100">
+            <h1 id="header-title" class="text-xl font-bold text-gray-800 tracking-tight">Home</h1>
+            <div id="digital-clock-header" class="text-xs font-mono font-semibold text-gray-500 bg-gray-100 px-2 py-1 rounded">--:--</div>
         </header>
         
         <!-- Content Area -->
-        <main class="content-area">
-            <!-- Home Page -->
+        <main class="content-area relative">
             <div id="home-page" class="page active space-y-6"></div>
-            <!-- Schedule Page -->
             <div id="schedule-page" class="page"></div>
-            <!-- Timer Page -->
             <div id="timer-page" class="page"></div>
-            <!-- Stats Page -->
             <div id="stats-page" class="page space-y-6"></div>
-            <!-- Settings Page -->
             <div id="settings-page" class="page space-y-4"></div>
         </main>
 
         <!-- Bottom Navigation -->
         <nav class="bottom-nav">
             <button class="nav-item active" data-page="home">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
-                <span>Home</span>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
+                <span class="pointer-events-none">Home</span>
             </button>
             <button class="nav-item" data-page="schedule">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
-                <span>Schedule</span>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                <span class="pointer-events-none">Schedule</span>
             </button>
             <button class="nav-item" data-page="timer">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                <span>Timer</span>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <span class="pointer-events-none">Timer</span>
             </button>
             <button class="nav-item" data-page="stats">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
-                <span>Stats</span>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                <span class="pointer-events-none">Stats</span>
             </button>
             <button class="nav-item" data-page="settings">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-                <span>Settings</span>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                <span class="pointer-events-none">Settings</span>
             </button>
         </nav>
     </div>
 
-    <!-- Modals & Toasts container -->
+    <!-- Modals Container -->
     <div id="modals-container"></div>
+    
+    <!-- Confirm Delete Modal (Global) -->
+    <div id="delete-confirm-modal" class="fixed inset-0 z-[150] flex items-center justify-center p-4 modal-overlay">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm modal-content p-6 text-center">
+            <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100 mb-4">
+                <svg class="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                </svg>
+            </div>
+            <h3 class="text-lg leading-6 font-bold text-gray-900" id="confirm-title">Delete Item?</h3>
+            <div class="mt-2">
+                <p class="text-sm text-gray-500" id="confirm-message">Are you sure you want to delete this? This action cannot be undone.</p>
+            </div>
+            <div class="mt-6 flex gap-3 justify-center">
+                <button id="cancel-delete-btn" class="flex-1 bg-white border border-gray-300 text-gray-700 font-semibold py-2 px-4 rounded-xl hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                    Cancel
+                </button>
+                <button id="confirm-delete-btn" class="flex-1 bg-red-600 text-white font-semibold py-2 px-4 rounded-xl hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 shadow-lg shadow-red-200">
+                    Delete
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
     <div id="toast-container" class="fixed bottom-24 right-4 z-[200]"></div>
 
     <script type="module">
@@ -163,12 +216,20 @@
         let allOrders = [], allSpeedCheckLogs = [], speedCheckTasks = [];
         let shopSchedule = { open: '10:00', close: '21:00' };
         let speedCheckAverageTimes = {};
+        let activeTimers = {}; 
+        let globalClockInterval = null;
         
-        let speedCheckTimer = { intervalId: null, startTime: 0, accumulatedMs: 0, taskName: '', isPaused: false };
-        let scTimerState = 'stopped'; // 'stopped', 'running', 'paused'
-        
+        // UI State
+        let statsTimeFilter = 'all';
+        let settingsSearchQuery = '';
+        let settingsSortOption = 'name-asc';
+        let timerSearchQuery = '';
         let scheduleSearchQuery = '';
+        let scheduleSortOption = 'eta-asc';
         let scheduleActiveFilter = 'all';
+
+        // Delete Context
+        let pendingDeleteAction = null;
 
         const INITIAL_SPEED_CHECK_TASKS = ["Cutting suit without inner", "Cutting suit with inner", "Stitching suit with inner", "Stitching suit without inner", "Pico duptta", "Pico turban", "Pico plazoo", "Overlock suit", "Fitting shirt normal", "Full fitting shirt", "Pant Hamming", "Jean's pant L short", "Pant w losse", "Normal rafu", "Kashmir rafu", "Patch work rafu", "Jacket zip change", "Jacket repair", "Single plazoo stitching", "Double plazoo stitching", "Single shirt stitching", "Double shirt stitching", "Blouse stitching", "Sarees stitching", "Sarees folo add", "Pant zip change"];
         
@@ -180,9 +241,10 @@
             toast.textContent = message;
             toastContainer.appendChild(toast);
             
-            setTimeout(() => {
+            // Trigger animation
+            requestAnimationFrame(() => {
                 toast.classList.remove('translate-y-4', 'opacity-0');
-            }, 10);
+            });
             
             setTimeout(() => {
                 toast.classList.add('translate-y-4', 'opacity-0');
@@ -217,7 +279,7 @@
             speedCheckAverageTimes = Object.fromEntries(Object.entries(groupedLogs).map(([name, data]) => [name, data.totalMs / data.count]));
         }
         
-        // --- Main Rendering & Navigation ---
+        // --- Navigation ---
         const pageRenderers = {
             home: renderHomePage,
             schedule: renderSchedulePage,
@@ -228,68 +290,100 @@
         const pageTitles = { home: 'Home', schedule: 'Schedule', timer: 'Timer', stats: 'Statistics', settings: 'Settings' };
         
         function switchPage(pageId) {
-            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-            document.getElementById(`${pageId}-page`).classList.add('active');
+            document.querySelectorAll('.page').forEach(p => {
+                p.classList.remove('active');
+            });
+            const targetPage = document.getElementById(`${pageId}-page`);
+            if(targetPage) targetPage.classList.add('active');
             
             document.querySelectorAll('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.page === pageId));
             document.getElementById('header-title').textContent = pageTitles[pageId] || 'Home';
             
-            if(pageRenderers[pageId]) {
-                pageRenderers[pageId]();
-            }
+            if(pageRenderers[pageId]) pageRenderers[pageId]();
         }
         
         function runAllUpdaters() {
             calculateAverages();
             const activePage = document.querySelector('.nav-item.active')?.dataset.page || 'home';
-            if (pageRenderers[activePage]) {
-                pageRenderers[activePage]();
-            }
+            if (pageRenderers[activePage]) pageRenderers[activePage]();
         }
         
         // --- Page Renderers ---
         function renderHomePage() {
             const container = document.getElementById('home-page');
             const today = new Date().setHours(0,0,0,0);
-            const todayLogs = allSpeedCheckLogs.filter(log => new Date(log.timestamp).setHours(0,0,0,0) === today);
-            
+            const todayLogs = allSpeedCheckLogs.filter(log => new Date(log.timestamp).setHours(0,0,0,0) === today).sort((a,b) => a.timestamp - b.timestamp);
             const totalHoursMs = todayLogs.reduce((sum, log) => sum + log.durationMs, 0);
             const totalIncome = todayLogs.reduce((sum, log) => sum + (parseFloat(log.rate) || 0), 0);
             
+            let firstStartTime = "N/A";
+            let lastStopTime = "N/A";
+            let breakTimeMs = 0;
+
+            if (todayLogs.length > 0) {
+                const firstLog = todayLogs[0];
+                const lastLog = todayLogs[todayLogs.length - 1];
+                const firstStartTimestamp = firstLog.timestamp - firstLog.durationMs; 
+                firstStartTime = new Date(firstStartTimestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                lastStopTime = new Date(lastLog.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                const totalTimeSpan = lastLog.timestamp - firstStartTimestamp;
+                breakTimeMs = Math.max(0, totalTimeSpan - totalHoursMs);
+            }
+
             container.innerHTML = `
-                <button id="home-start-timing-btn" class="w-full bg-indigo-600 text-white font-bold py-6 px-4 rounded-xl shadow-lg hover:bg-indigo-700 text-2xl transition-transform transform hover:scale-105">
-                    Start Timing a Task
-                </button>
-                
-                <div class="grid grid-cols-2 gap-4 mt-6">
-                    <div class="bg-white p-4 rounded-xl shadow-md text-center">
-                        <p class="text-sm font-medium text-gray-500">Today's Earnings</p>
-                        <p class="text-3xl font-extrabold text-gray-800 mt-1">₹${totalIncome.toFixed(0)}</p>
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="bg-indigo-600 text-white p-4 rounded-xl shadow-md text-center">
+                        <p class="text-xs font-medium opacity-80">First Start</p>
+                        <p class="text-xl font-bold mt-1">${firstStartTime}</p>
                     </div>
-                     <div class="bg-white p-4 rounded-xl shadow-md text-center">
-                        <p class="text-sm font-medium text-gray-500">Hours Logged Today</p>
-                        <p class="text-3xl font-extrabold text-gray-800 mt-1">${formatMilliseconds(totalHoursMs)}</p>
+                    <div class="bg-purple-600 text-white p-4 rounded-xl shadow-md text-center">
+                        <p class="text-xs font-medium opacity-80">Last Stop</p>
+                        <p class="text-xl font-bold mt-1">${lastStopTime}</p>
                     </div>
                 </div>
-                
-                <div class="mt-8">
-                    <h2 class="text-lg font-bold text-gray-700 mb-3">Recent Activity</h2>
+                <div class="bg-white p-4 rounded-xl shadow-md mt-4">
+                    <div class="grid grid-cols-2 gap-4 text-center divide-x">
+                        <div>
+                            <p class="text-sm text-gray-500">Total Work</p>
+                            <p class="text-2xl font-extrabold text-green-600 mt-1">${formatMilliseconds(totalHoursMs)}</p>
+                        </div>
+                        <div>
+                            <p class="text-sm text-gray-500">Break Time</p>
+                            <p class="text-2xl font-extrabold text-orange-500 mt-1">${formatMilliseconds(breakTimeMs)}</p>
+                        </div>
+                    </div>
+                    <div class="mt-4 pt-4 border-t text-center">
+                         <p class="text-sm text-gray-500">Today's Earnings</p>
+                         <p class="text-3xl font-extrabold text-gray-800 mt-1">₹${totalIncome.toFixed(0)}</p>
+                    </div>
+                </div>
+                <button onclick="openPerformanceReportModal()" class="w-full bg-gray-800 text-white font-bold py-3 px-4 rounded-xl shadow-md mt-4 flex justify-center items-center gap-2 hover:bg-gray-900 transition-colors">
+                    Generate Performance Report
+                </button>
+                <div class="mt-6">
+                    <h2 class="text-lg font-bold text-gray-700 mb-3">Tasks Completed Today</h2>
                     <div id="recent-activity-list" class="space-y-3">
-                        ${todayLogs.length > 0 ? todayLogs.slice(0, 5).map(log => `
-                            <div class="bg-white p-3 rounded-lg flex justify-between items-center shadow-sm">
+                        ${todayLogs.length > 0 ? todayLogs.slice().reverse().slice(0, 8).map(log => `
+                            <div class="bg-white p-3 rounded-lg flex justify-between items-center shadow-sm border-l-4 border-green-500">
                                 <div>
-                                    <p class="font-semibold">${log.taskName}</p>
+                                    <p class="font-semibold text-gray-800">${log.taskName}</p>
                                     <p class="text-xs text-gray-500">${new Date(log.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
                                 </div>
-                                <p class="font-semibold font-mono text-lg">${formatMilliseconds(log.durationMs, true)}</p>
+                                <div class="flex items-center gap-2">
+                                    <p class="font-semibold font-mono text-gray-700">${formatMilliseconds(log.durationMs, true)}</p>
+                                    <button class="delete-recent-btn p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors" data-delete-type="log" data-id="${log.id}" title="Delete Log">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 pointer-events-none" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>
+                                    </button>
+                                </div>
                             </div>
                         `).join('') : '<div class="bg-white p-6 rounded-lg text-center text-gray-500"><p>No tasks timed yet today.</p></div>'}
                     </div>
                 </div>
             `;
-            document.getElementById('home-start-timing-btn').addEventListener('click', () => switchPage('timer'));
+            window.openPerformanceReportModal = openPerformanceReportModal;
         }
 
+        // --- Schedule Page (Single Definition) ---
         function renderSchedulePage() {
             const container = document.getElementById('schedule-page');
             
@@ -302,12 +396,26 @@
                 );
             }
 
+            filteredOrders.sort((a,b) => {
+                if (scheduleSortOption === 'eta-asc') return (a.estimatedCompletionTimestamp || 0) - (b.estimatedCompletionTimestamp || 0);
+                if (scheduleSortOption === 'eta-desc') return (b.estimatedCompletionTimestamp || 0) - (a.estimatedCompletionTimestamp || 0);
+                if (scheduleSortOption === 'name-asc') return (a.customerName || '').localeCompare(b.customerName || '');
+                return 0;
+            });
+
             const toSchedule = filteredOrders.filter(o => o.pipelineStatus === 'new' || !o.pipelineStatus || o.status === 'Pending');
-            const upcoming = filteredOrders.filter(o => o.pipelineStatus === 'in_progress').sort((a,b) => a.estimatedCompletionTimestamp - b.estimatedCompletionTimestamp);
+            const upcoming = filteredOrders.filter(o => o.pipelineStatus === 'in_progress');
 
             container.innerHTML = `
-                <div class="sticky top-[-1rem] bg-gray-100 pt-4 pb-4 z-10 -mx-4 px-4 border-b border-gray-200">
-                    <input type="search" id="schedule-search-input" placeholder="Search by Order # or Name..." class="w-full p-3 border border-gray-300 rounded-lg shadow-sm mb-4" value="${scheduleSearchQuery}">
+                <div class="sticky top-[-1rem] bg-gray-100 pt-4 pb-4 z-10 -mx-4 px-4 border-b border-gray-200 shadow-sm">
+                    <div class="flex gap-2 mb-2">
+                        <input type="search" id="schedule-search-input" placeholder="Search by Order # or Name..." class="app-input flex-grow" value="${scheduleSearchQuery}">
+                        <select id="schedule-sort-select" class="app-input w-auto">
+                            <option value="eta-asc" ${scheduleSortOption==='eta-asc'?'selected':''}>Deadline: Earliest</option>
+                            <option value="eta-desc" ${scheduleSortOption==='eta-desc'?'selected':''}>Deadline: Latest</option>
+                            <option value="name-asc" ${scheduleSortOption==='name-asc'?'selected':''}>Name: A-Z</option>
+                        </select>
+                    </div>
                     <div class="flex gap-2">
                         <button class="schedule-filter-btn flex-1 py-2 px-3 text-sm font-semibold rounded-lg ${scheduleActiveFilter === 'all' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700'}" data-filter="all">All (${toSchedule.length + upcoming.length})</button>
                         <button class="schedule-filter-btn flex-1 py-2 px-3 text-sm font-semibold rounded-lg ${scheduleActiveFilter === 'to-schedule' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700'}" data-filter="to-schedule">To Schedule (${toSchedule.length})</button>
@@ -321,10 +429,10 @@
                         <h2 class="text-lg font-bold text-gray-700 mb-3">Orders to Schedule (${toSchedule.length})</h2>
                         <div id="to-schedule-list" class="space-y-3">
                             ${toSchedule.length > 0 ? toSchedule.map(order => `
-                                <div class="bg-white p-3 rounded-lg shadow-sm">
+                                <div class="bg-white p-3 rounded-lg shadow-sm border border-gray-200">
                                     <div class="flex justify-between items-center">
-                                        <p class="font-semibold">#${order.orderNumber} - ${order.customerName}</p>
-                                        <button onclick="openEtaModal('${order.id}')" class="bg-indigo-100 text-indigo-700 font-semibold text-xs py-1 px-3 rounded-full">Set Time</button>
+                                        <p class="font-semibold">#${order.orderNumber || 'N/A'} - ${order.customerName}</p>
+                                        <button onclick="openEtaModal('${order.id}')" class="bg-indigo-100 text-indigo-700 font-semibold text-xs py-1 px-3 rounded-full hover:bg-indigo-200">Set Time</button>
                                     </div>
                                 </div>
                             `).join('') : '<p class="bg-white p-4 rounded-lg text-sm text-center text-gray-500">All new orders are scheduled!</p>'}
@@ -343,7 +451,12 @@
                                 <div class="bg-white p-3 rounded-lg shadow-sm border-l-4 ${isOverdue ? 'border-red-500' : 'border-blue-500'}">
                                     <div class="flex justify-between items-center">
                                         <p class="font-semibold">#${order.orderNumber} - ${order.customerName}</p>
-                                        <p class="text-xs font-semibold ${isOverdue ? 'text-red-600' : 'text-blue-600'}">${eta.toLocaleDateString()} @ ${eta.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
+                                        <div class="flex items-center gap-2">
+                                            <p class="text-xs font-semibold ${isOverdue ? 'text-red-600' : 'text-blue-600'}">${eta.toLocaleDateString()} @ ${eta.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
+                                            <button class="text-red-500 hover:text-red-700 p-1 unschedule-btn" data-order-id="${order.id}" title="Unschedule">
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                            </button>
+                                        </div>
                                     </div>
                                     <p class="text-sm mt-1 text-gray-600">Task: ${order.assignedTaskName || 'N/A'}</p>
                                 </div>
@@ -354,52 +467,135 @@
                 </div>
             `;
 
-            document.getElementById('schedule-search-input').addEventListener('input', (e) => {
-                scheduleSearchQuery = e.target.value;
-                renderSchedulePage();
-            });
-
+            // Re-attach listeners after rendering
+            document.getElementById('schedule-search-input').addEventListener('input', (e) => { scheduleSearchQuery = e.target.value; renderSchedulePage(); });
+            document.getElementById('schedule-sort-select').addEventListener('change', (e) => { scheduleSortOption = e.target.value; renderSchedulePage(); });
             document.querySelectorAll('.schedule-filter-btn').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    scheduleActiveFilter = e.currentTarget.dataset.filter;
-                    renderSchedulePage();
-                });
+                btn.addEventListener('click', (e) => { scheduleActiveFilter = e.currentTarget.dataset.filter; renderSchedulePage(); });
+            });
+            
+            // Unschedule action delegated listener
+            document.getElementById('schedule-lists-container').addEventListener('click', (e) => {
+                const unscheduleBtn = e.target.closest('.unschedule-btn');
+                if (unscheduleBtn) {
+                    const orderId = unscheduleBtn.dataset.orderId;
+                    showDeleteConfirm(() => {
+                        db.ref(`orders/${orderId}`).update({ pipelineStatus: 'new', assignedTaskName: null, estimatedCompletionTimestamp: null }).then(() => showToast("Order unscheduled."));
+                    }, "Unschedule Order?", "This will remove the deadline and move it back to the 'To Schedule' list.");
+                }
             });
         }
 
-        function renderTimerPage() {
-            const container = document.getElementById('timer-page');
-            const sortedTasks = [...speedCheckTasks].sort((a,b) => (a.name || '').localeCompare(b.name || ''));
+        // --- Timer Page (Single Definition) ---
+        function renderTimerPage() { 
+             const container = document.getElementById('timer-page');
+             let sortedTasks = [...speedCheckTasks].sort((a,b) => (a.name || '').localeCompare(b.name || ''));
+             if (timerSearchQuery) sortedTasks = sortedTasks.filter(t => t.name.toLowerCase().includes(timerSearchQuery.toLowerCase()));
+             
+             const tasksHtml = sortedTasks.map(task => {
+                const timerState = activeTimers[task.id];
+                const isActive = timerState && !timerState.isPaused;
+                const isPaused = timerState && timerState.isPaused;
+                let timerDisplay = "00:00:00";
+                if (timerState) {
+                    const elapsed = timerState.accumulatedMs + (timerState.isPaused ? 0 : (Date.now() - timerState.startTime));
+                    timerDisplay = formatMilliseconds(elapsed, true);
+                }
+                let cardClass = "bg-white border border-gray-200";
+                if (isActive) cardClass = "bg-green-50 border-green-500 active-task";
+                if (isPaused) cardClass = "bg-yellow-50 border-yellow-500 paused-task";
+                const escapedTaskName = task.name.replace(/'/g, "\\'"); 
+
+                return `
+                <div class="${cardClass} p-4 rounded-xl shadow-sm flex flex-col gap-3 transition-all duration-300" id="task-card-${task.id}">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <h3 class="font-bold text-gray-800 text-lg">${task.name}</h3>
+                            <p class="text-sm text-gray-500">Rate: ₹${task.rate || 0}</p>
+                        </div>
+                        <div class="text-right">
+                            <div id="timer-display-${task.id}" class="digital-font text-2xl font-bold ${isActive ? 'text-green-600' : (isPaused ? 'text-yellow-600' : 'text-gray-400')}">
+                                ${timerDisplay}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-3 gap-2 mt-2">
+                        ${isActive 
+                            ? `<button class="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 rounded-lg" onclick="pauseSpeedCheckTimer('${task.id}')">Pause</button>`
+                            : `<button class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 rounded-lg" onclick="startSpeedCheckTimer('${task.id}', '${escapedTaskName}')">${isPaused ? 'Resume' : 'Start'}</button>`
+                        }
+                        <button class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 rounded-lg ${(isActive || isPaused) ? '' : 'opacity-50 cursor-not-allowed'}" 
+                                onclick="${(isActive || isPaused) ? `stopSpeedCheckTimer('${task.id}')` : ''}" 
+                                ${(isActive || isPaused) ? '' : 'disabled'}>
+                            Stop
+                        </button>
+                    </div>
+                </div>`;
+            }).join('');
+
             container.innerHTML = `
-                <div class="h-full flex flex-col justify-between p-4 bg-gray-800 text-white rounded-xl shadow-2xl">
-                    <div class="flex-grow flex flex-col items-center justify-center">
-                        <select id="timer-task-select" class="w-full max-w-xs bg-gray-700 text-white p-3 rounded-lg text-center text-lg mb-6 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                             <option value="">-- Select Task --</option>
-                             ${sortedTasks.map(t => `<option value="${t.name}">${t.name}</option>`).join('')}
-                        </select>
-                        <div id="timer-display" class="font-mono text-7xl font-bold tracking-tighter">00:00:00</div>
+                <div class="sticky top-0 bg-gray-100 pb-4 z-10 -mt-2 pt-2 space-y-4">
+                    <div class="bg-gray-900 text-white p-6 rounded-2xl shadow-lg text-center relative overflow-hidden">
+                        <div class="relative z-10">
+                            <p class="text-xs text-gray-400 uppercase tracking-widest mb-1">Current Time</p>
+                            <div id="digital-clock" class="digital-font text-5xl font-black tracking-tight">--:--:--</div>
+                            <div class="text-sm text-gray-400 mt-1" id="digital-date">...</div>
+                        </div>
+                        <div class="absolute top-0 right-0 -mr-8 -mt-8 w-32 h-32 rounded-full bg-indigo-500 opacity-20 blur-2xl"></div>
+                        <div class="absolute bottom-0 left-0 -ml-8 -mb-8 w-32 h-32 rounded-full bg-purple-500 opacity-20 blur-2xl"></div>
                     </div>
-                    <div class="flex-shrink-0 grid grid-cols-2 gap-4">
-                        <button id="timer-stop-btn" class="bg-red-600 text-white font-bold py-5 rounded-lg text-xl disabled:bg-red-800 disabled:opacity-70" disabled>Stop & Save</button>
-                        <button id="timer-control-btn" class="bg-blue-600 text-white font-bold py-5 rounded-lg text-xl">Start</button>
-                    </div>
+                    <input type="search" id="timer-search-input" placeholder="Search tasks..." class="app-input" value="${timerSearchQuery}">
                 </div>
+                <div class="space-y-4 pb-20">${tasksHtml.length > 0 ? tasksHtml : '<p class="text-center text-gray-500 py-10">No tasks found.</p>'}</div>
             `;
-            
-            document.getElementById('timer-stop-btn').addEventListener('click', stopSpeedCheckTimer);
-            document.getElementById('timer-control-btn').addEventListener('click', () => {
-                if (scTimerState === 'stopped') startSpeedCheckTimer();
-                else if (scTimerState === 'running') pauseSpeedCheckTimer();
-                else if (scTimerState === 'paused') resumeSpeedCheckTimer();
-            });
+            document.getElementById('timer-search-input').addEventListener('input', (e) => { timerSearchQuery = e.target.value; renderTimerPage(); });
+            startClock();
         }
         
+        // --- Clock Function (Single Definition) ---
+        function startClock() {
+            if (globalClockInterval) clearInterval(globalClockInterval);
+            const updateClock = () => {
+                const now = new Date();
+                const timeStr = now.toLocaleTimeString('en-US', { hour12: true, hour: '2-digit', minute: '2-digit' });
+                const headerClock = document.getElementById('digital-clock-header');
+                const pageClock = document.getElementById('digital-clock');
+                const pageDate = document.getElementById('digital-date');
+                
+                if (headerClock) headerClock.textContent = timeStr;
+                if (pageClock) pageClock.textContent = timeStr;
+                if (pageDate) pageDate.textContent = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+            };
+            updateClock();
+            globalClockInterval = setInterval(updateClock, 1000);
+        }
+
+        // --- Stats & Log Manager ---
         function renderStatsPage() {
             const container = document.getElementById('stats-page');
+            const now = new Date();
+            const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+            const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay()).getTime();
+            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
             
+            let filteredLogs = allSpeedCheckLogs;
+            if (statsTimeFilter === 'today') filteredLogs = allSpeedCheckLogs.filter(l => l.timestamp >= startOfDay);
+            else if (statsTimeFilter === 'week') filteredLogs = allSpeedCheckLogs.filter(l => l.timestamp >= startOfWeek);
+            else if (statsTimeFilter === 'month') filteredLogs = allSpeedCheckLogs.filter(l => l.timestamp >= startOfMonth);
+
+            const localAverages = {};
+            filteredLogs.forEach(log => {
+                if(log.taskName && log.durationMs) {
+                    if(!localAverages[log.taskName]) localAverages[log.taskName] = { total: 0, count: 0 };
+                    localAverages[log.taskName].total += log.durationMs;
+                    localAverages[log.taskName].count++;
+                }
+            });
+
             const analysisData = speedCheckTasks.map(task => {
-                const avgMs = speedCheckAverageTimes[task.name];
-                if (!avgMs) return null;
+                const data = localAverages[task.name];
+                if (!data) return null;
+                const avgMs = data.total / data.count;
                 const masterRate = task.rate || 0;
                 const ratePerHour = masterRate > 0 && avgMs > 0 ? (masterRate / (avgMs / 3600000)) : 0;
                 const ratePerMinute = ratePerHour / 60;
@@ -407,27 +603,30 @@
                 return { ...task, avgMs, ratePerHour, ratePerMinute, tasksPerHour };
             }).filter(Boolean).sort((a, b) => b.ratePerHour - a.ratePerHour);
 
+            const escapedTaskName = (name) => name.replace(/'/g, "\\'");
+
             container.innerHTML = `
                  <div>
-                    <h2 class="text-lg font-bold text-gray-700 mb-3">Task Profitability</h2>
+                    <div class="flex justify-between items-center mb-4 flex-wrap gap-2">
+                        <h2 class="text-lg font-bold text-gray-700">Task Profitability</h2>
+                        <div class="flex bg-gray-200 rounded-lg p-1 gap-1">
+                            <button class="px-3 py-1 text-xs rounded-md font-medium transition-colors ${statsTimeFilter === 'today' ? 'bg-white shadow text-indigo-600' : 'text-gray-600 hover:bg-gray-300'}" onclick="setStatsFilter('today')">Today</button>
+                            <button class="px-3 py-1 text-xs rounded-md font-medium transition-colors ${statsTimeFilter === 'week' ? 'bg-white shadow text-indigo-600' : 'text-gray-600 hover:bg-gray-300'}" onclick="setStatsFilter('week')">Week</button>
+                            <button class="px-3 py-1 text-xs rounded-md font-medium transition-colors ${statsTimeFilter === 'month' ? 'bg-white shadow text-indigo-600' : 'text-gray-600 hover:bg-gray-300'}" onclick="setStatsFilter('month')">Month</button>
+                            <button class="px-3 py-1 text-xs rounded-md font-medium transition-colors ${statsTimeFilter === 'all' ? 'bg-white shadow text-indigo-600' : 'text-gray-600 hover:bg-gray-300'}" onclick="setStatsFilter('all')">All</button>
+                        </div>
+                    </div>
                      <div class="bg-white rounded-xl shadow-md overflow-hidden">
                         <div class="overflow-x-auto">
                             <table class="w-full text-sm">
-                                <thead class="bg-gray-50"><tr class="text-left">
-                                    <th class="p-3 font-semibold">Task</th>
-                                    <th class="p-3 font-semibold text-right">Avg. Time</th>
-                                    <th class="p-3 font-semibold text-right">Rate/Hour</th>
-                                    <th class="p-3 font-semibold text-right">Rate/Min</th>
-                                    <th class="p-3 font-semibold text-right">Tasks/Hour</th>
-                                </tr></thead>
+                                <thead class="bg-gray-50"><tr class="text-left"><th class="p-3 font-semibold">Task</th><th class="p-3 font-semibold text-right">Avg. Time</th><th class="p-3 font-semibold text-right">Rate/Hour</th><th class="p-3 font-semibold text-right">History</th></tr></thead>
                                 <tbody>
                                 ${analysisData.length > 0 ? analysisData.map(d => `
                                     <tr class="border-t">
                                         <td class="p-3 font-medium">${d.name}</td>
                                         <td class="p-3 text-right font-mono">${formatMilliseconds(d.avgMs, true)}</td>
                                         <td class="p-3 text-right font-mono font-bold text-green-600">₹${d.ratePerHour.toFixed(2)}</td>
-                                        <td class="p-3 text-right font-mono text-green-600">₹${d.ratePerMinute.toFixed(2)}</td>
-                                        <td class="p-3 text-right font-mono text-blue-600">${d.tasksPerHour.toFixed(1)}</td>
+                                        <td class="p-3 text-right"><button onclick="openLogManager('${escapedTaskName(d.name)}')" class="bg-indigo-100 text-indigo-700 hover:bg-indigo-200 px-3 py-1 rounded text-xs font-semibold">Manage Logs</button></td>
                                     </tr>
                                 `).join('') : '<tr><td colspan="5" class="p-6 text-center text-gray-500">No timed tasks with rates found.</td></tr>'}
                                 </tbody>
@@ -438,263 +637,331 @@
             `;
         }
 
+        // --- Log Manager Modal ---
+        function openLogManager(taskName) { renderLogManagerModal(taskName); }
+
+        function renderLogManagerModal(taskName, searchQuery = '', dateFilter = '') {
+            let logsForTask = allSpeedCheckLogs.filter(log => log.taskName === taskName);
+            if (searchQuery) { const q = searchQuery.toLowerCase(); logsForTask = logsForTask.filter(log => new Date(log.timestamp).toLocaleString().toLowerCase().includes(q) || formatMilliseconds(log.durationMs, true).toLowerCase().includes(q)); }
+            if (dateFilter) { const filterDate = new Date(dateFilter).setHours(0,0,0,0); logsForTask = logsForTask.filter(log => new Date(log.timestamp).setHours(0,0,0,0) === filterDate); }
+            logsForTask.sort((a,b) => b.timestamp - a.timestamp);
+            
+            const existingModal = document.getElementById('log-manager-modal');
+            const tbodyContent = logsForTask.length > 0 ? logsForTask.map(log => `
+                <tr class="border-b" id="log-row-${log.id}">
+                    <td class="p-2 text-center"><input type="checkbox" class="log-checkbox w-4 h-4 text-indigo-600 rounded" data-log-id="${log.id}"></td>
+                    <td class="p-2 text-gray-600 text-xs">${new Date(log.timestamp).toLocaleString()}</td>
+                    <td class="p-2 text-right font-mono font-semibold">${formatMilliseconds(log.durationMs, true)}</td>
+                    <td class="p-2 text-center flex justify-center gap-2">
+                        <button class="delete-log-btn text-red-500 hover:text-red-700 p-2 rounded-full hover:bg-red-50" data-delete-type="log" data-id="${log.id}" title="Delete">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                        </button>
+                    </td>
+                </tr>`).join('') : '<tr><td colspan="4" class="p-4 text-center text-gray-500">No logs found.</td></tr>';
+
+            const modalBodyHTML = `
+                <div class="p-4 flex flex-col h-[80vh]">
+                    <div class="flex justify-between items-center mb-4"><h3 class="font-bold text-lg truncate pr-2">History: ${taskName}</h3><button id="close-log-manager" class="text-gray-500 hover:text-gray-800 text-2xl">&times;</button></div>
+                    <div class="flex gap-2 mb-3"><input type="search" id="log-search" placeholder="Search..." class="app-input flex-grow text-xs" value="${searchQuery}"><input type="date" id="log-date-filter" class="app-input w-auto text-xs" value="${dateFilter}"></div>
+                    <div class="flex justify-between items-center mb-2"><div class="flex items-center"><input type="checkbox" id="select-all-logs-checkbox" class="w-4 h-4 text-indigo-600 rounded mr-2"><span class="text-xs text-gray-500">Select All</span></div><button id="delete-selected-logs-btn" class="bg-red-500 text-white font-semibold py-1 px-3 rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed" disabled>Delete Selected</button></div>
+                    <div class="flex-grow overflow-y-auto border rounded-lg"><table class="w-full text-sm text-left"><thead class="bg-gray-100 sticky top-0"><tr><th class="p-2 w-8"></th><th class="p-2">Date</th><th class="p-2 text-right">Duration</th><th class="p-2 text-center">Actions</th></tr></thead><tbody id="logs-table-body">${tbodyContent}</tbody></table></div>
+                </div>`;
+
+            if (existingModal) {
+                document.getElementById('logs-table-body').innerHTML = tbodyContent;
+            } else {
+                openModal('log-manager-modal', modalBodyHTML);
+                document.getElementById('close-log-manager').addEventListener('click', () => closeModal('log-manager-modal'));
+                
+                const searchInput = document.getElementById('log-search');
+                const dateInput = document.getElementById('log-date-filter');
+                if(searchInput) searchInput.addEventListener('input', (e) => renderLogManagerModal(taskName, e.target.value, dateFilter));
+                if(dateInput) dateInput.addEventListener('change', (e) => renderLogManagerModal(taskName, searchQuery, e.target.value));
+            }
+            
+            const selectAllCheckbox = document.getElementById('select-all-logs-checkbox');
+            const bulkDeleteBtn = document.getElementById('delete-selected-logs-btn');
+            const checkboxes = document.querySelectorAll('.log-checkbox');
+            
+            const updateBulkBtn = () => { bulkDeleteBtn.disabled = document.querySelectorAll('.log-checkbox:checked').length === 0; };
+            
+            if(selectAllCheckbox) {
+                selectAllCheckbox.onchange = (e) => { checkboxes.forEach(cb => cb.checked = e.target.checked); updateBulkBtn(); };
+            }
+            checkboxes.forEach(cb => cb.onchange = updateBulkBtn);
+            
+            if(bulkDeleteBtn) {
+                bulkDeleteBtn.onclick = () => {
+                    const checkedBoxes = document.querySelectorAll('.log-checkbox:checked');
+                    if (checkedBoxes.length === 0) return;
+                    showDeleteConfirm(() => {
+                        const logIds = Array.from(checkedBoxes).map(cb => cb.dataset.logId);
+                        logIds.forEach(id => db.ref(`speedCheckLogs/${id}`).remove());
+                        showToast(`Deleted ${checkedBoxes.length} logs.`);
+                    }, `Delete ${checkedBoxes.length} Entries?`, "These logs will be permanently removed.");
+                };
+            }
+        }
+
+        // --- Settings Page ---
         function renderSettingsPage() {
             const container = document.getElementById('settings-page');
-            const sortedTasks = [...speedCheckTasks].sort((a,b) => (a.name || '').localeCompare(b.name || ''));
+            let sortedTasks = [...speedCheckTasks];
+            if (settingsSortOption === 'name-asc') sortedTasks.sort((a,b) => (a.name || '').localeCompare(b.name || ''));
+            else sortedTasks.sort((a,b) => b.rate - a.rate);
+            if (settingsSearchQuery) sortedTasks = sortedTasks.filter(t => t.name.toLowerCase().includes(settingsSearchQuery.toLowerCase()));
+
             container.innerHTML = `
                  <div class="bg-white p-4 rounded-xl shadow-md">
                      <h2 class="text-lg font-bold text-gray-700 mb-4">Shop Hours</h2>
                      <div class="space-y-4">
-                         <div>
-                            <label for="shop-open-time" class="block text-sm font-medium text-gray-700">Shop Open Time</label>
-                            <input type="time" id="shop-open-time" class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm" value="${shopSchedule.open || '10:00'}">
-                        </div>
-                        <div>
-                            <label for="shop-close-time" class="block text-sm font-medium text-gray-700">Shop Close Time</label>
-                            <input type="time" id="shop-close-time" class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm" value="${shopSchedule.close || '21:00'}">
-                        </div>
-                        <button id="save-schedule-btn" class="w-full bg-indigo-600 text-white font-semibold py-2 px-4 rounded-lg">Save Hours</button>
+                         <div><label class="block text-sm font-medium text-gray-700">Open</label><input type="time" id="shop-open-time" class="app-input" value="${shopSchedule.open || '10:00'}"></div>
+                         <div><label class="block text-sm font-medium text-gray-700">Close</label><input type="time" id="shop-close-time" class="app-input" value="${shopSchedule.close || '21:00'}"></div>
+                         <button id="save-schedule-btn" class="w-full bg-indigo-600 text-white font-semibold py-2 px-4 rounded-lg">Save Hours</button>
                      </div>
                 </div>
                  <div class="bg-white p-4 rounded-xl shadow-md mt-6">
-                     <h2 class="text-lg font-bold text-gray-700 mb-4">Task Management</h2>
+                     <h2 class="text-lg font-bold text-gray-700 mb-4">Tasks</h2>
+                     <div class="flex gap-2 mb-4">
+                        <input type="search" id="settings-task-search" placeholder="Search..." class="app-input flex-grow" value="${settingsSearchQuery}">
+                        <select id="settings-sort-select" class="app-input w-auto"><option value="name-asc" ${settingsSortOption==='name-asc'?'selected':''}>A-Z</option><option value="rate-desc" ${settingsSortOption==='rate-desc'?'selected':''}>Rate</option></select>
+                     </div>
                      <div id="manage-tasks-list" class="space-y-2 mb-4 max-h-[40vh] overflow-y-auto border-t pt-4">
                         ${sortedTasks.length > 0 ? sortedTasks.map(task => `
-                            <div class="flex items-center justify-between p-2 bg-gray-100 rounded gap-2">
-                                <span class="font-medium flex-grow">${task.name}</span>
-                                <input type="number" value="${task.rate || 0}" class="text-right border rounded-md px-2 py-1 w-20 text-sm task-rate-input" data-task-id="${task.id}" placeholder="Rate (₹)">
-                                <button class="delete-task-btn p-1 text-red-500 hover:bg-red-100 rounded-full" data-task-id="${task.id}" aria-label="Delete task">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>
+                            <div class="flex items-center justify-between p-2 bg-gray-50 rounded gap-2 border">
+                                <input type="text" value="${task.name}" class="bg-transparent font-medium flex-grow border-b border-transparent focus:border-indigo-500 outline-none task-name-input" data-task-id="${task.id}">
+                                <input type="number" value="${task.rate || 0}" class="text-right border rounded px-2 py-1 w-20 text-sm task-rate-input" data-task-id="${task.id}">
+                                <button class="delete-task-btn p-2 text-red-500 hover:bg-red-50 rounded-full" data-delete-type="task" data-id="${task.id}">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 pointer-events-none" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>
                                 </button>
                             </div>
-                        `).join('') : '<p class="text-center text-gray-500">No tasks defined yet.</p>'}
+                        `).join('') : '<p class="text-center text-gray-500">No tasks matched.</p>'}
                     </div>
-                    <form id="add-task-form" class="p-4 border-t -mx-4 -mb-4 flex gap-2">
-                        <input type="text" id="new-task-name" class="w-full border rounded-md px-3 py-2 text-sm" placeholder="New task name..." required>
-                        <input type="number" id="new-task-rate" class="border rounded-md px-3 py-2 w-24 text-sm" placeholder="Rate (₹)">
-                        <button type="submit" class="bg-indigo-600 text-white font-semibold rounded-md px-4 py-2 text-sm whitespace-nowrap">Add Task</button>
-                    </form>
-                </div>
-            `;
-            document.getElementById('save-schedule-btn').addEventListener('click', saveSchedule);
+                    <form id="add-task-form" class="flex gap-2"><input type="text" id="new-task-name" class="app-input flex-grow" placeholder="New Task..." required><input type="number" id="new-task-rate" class="app-input w-24" placeholder="₹"><button type="submit" class="bg-indigo-600 text-white rounded px-4">Add</button></form>
+                </div>`;
+            
+            document.getElementById('save-schedule-btn').onclick = saveSchedule;
+            document.getElementById('settings-task-search').oninput = (e) => { settingsSearchQuery = e.target.value; renderSettingsPage(); };
+            document.getElementById('settings-sort-select').onchange = (e) => { settingsSortOption = e.target.value; renderSettingsPage(); };
+            document.querySelectorAll('.task-name-input').forEach(input => input.onchange = (e) => db.ref(`speedCheckTasks/${e.target.dataset.taskId}/name`).set(e.target.value.trim()));
+            document.querySelectorAll('.task-rate-input').forEach(input => input.onchange = (e) => db.ref(`speedCheckTasks/${e.target.dataset.taskId}/rate`).set(parseFloat(e.target.value)||0));
         }
 
-        // --- Modals ---
+        // --- GLOBAL DELETE LOGIC ---
+        function showDeleteConfirm(action, title = "Confirm Delete", message = "Are you sure you want to delete this? This cannot be undone.") {
+            pendingDeleteAction = action;
+            document.getElementById('confirm-title').textContent = title;
+            document.getElementById('confirm-message').textContent = message;
+            
+            const modal = document.getElementById('delete-confirm-modal');
+            modal.classList.add('active');
+        }
+
+        function hideDeleteConfirm() {
+            const modal = document.getElementById('delete-confirm-modal');
+            modal.classList.remove('active');
+            pendingDeleteAction = null;
+        }
+
+        document.getElementById('confirm-delete-btn').addEventListener('click', () => {
+            if (pendingDeleteAction) pendingDeleteAction();
+            hideDeleteConfirm();
+        });
+        document.getElementById('cancel-delete-btn').addEventListener('click', hideDeleteConfirm);
+        document.getElementById('delete-confirm-modal').addEventListener('click', (e) => {
+            if (e.target.id === 'delete-confirm-modal') hideDeleteConfirm();
+        });
+
+        document.body.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-delete-type]');
+            if (!btn) return;
+
+            const type = btn.dataset.deleteType;
+            const id = btn.dataset.id;
+
+            if (type === 'log') {
+                showDeleteConfirm(() => {
+                    db.ref(`speedCheckLogs/${id}`).remove();
+                    showToast('Log entry deleted.');
+                }, 'Delete Log Entry?', 'This record will be permanently removed from history.');
+            } 
+            else if (type === 'task') {
+                showDeleteConfirm(() => {
+                    db.ref(`speedCheckTasks/${id}`).remove();
+                    showToast('Task deleted.');
+                }, 'Delete Task?', 'This task and its associated rate will be removed.');
+            }
+        });
+
         function openModal(id, content) {
             const modal = document.createElement('div');
             modal.id = id;
-            modal.className = 'fixed inset-0 z-[150] flex items-center justify-center p-4 modal-overlay';
+            modal.className = 'fixed inset-0 z-[100] flex items-center justify-center p-4 modal-overlay active';
             modal.innerHTML = `<div class="bg-white rounded-xl shadow-2xl w-full max-w-md modal-content">${content}</div>`;
-            
-            modal.addEventListener('click', (e) => {
-                if(e.target.id === id) closeModal(id); // Close on overlay click
-            });
+            modal.addEventListener('click', (e) => { if(e.target.id === id) closeModal(id); });
             document.getElementById('modals-container').appendChild(modal);
         }
 
         function closeModal(id) {
             const modal = document.getElementById(id);
             if (modal) {
-                const modalContent = modal.querySelector('.modal-content');
-                if (modalContent) {
-                    const removeModal = () => {
-                        if (modal.parentNode) {
-                            modal.remove();
-                        }
-                        modalContent.removeEventListener('transitionend', removeModal);
-                    };
-                    modalContent.addEventListener('transitionend', removeModal);
-                    
-                    // Trigger exit animation by applying final state styles inline to override CSS specificity
-                    modalContent.style.transform = 'translateY(20px)';
-                    modalContent.style.opacity = '0';
-                    
-                    // Fallback in case transitionend doesn't fire
-                    setTimeout(removeModal, 300);
-                } else {
-                    modal.remove(); // Fallback if there's no modal content
-                }
+                modal.classList.remove('active');
+                setTimeout(() => modal.remove(), 300);
             }
         }
 
-        window.openEtaModal = (orderId) => {
-            const order = allOrders.find(o => o.id === orderId);
-            if (!order) return;
-            
-            const sortedTasks = [...speedCheckTasks].sort((a,b) => (a.name || '').localeCompare(b.name || ''));
-            const content = `
-                <div class="p-4">
-                    <h3 class="font-bold text-lg mb-4">Set Pickup for #${order.orderNumber}</h3>
-                    <form id="eta-form" class="space-y-4">
-                        <div>
-                             <label for="eta-task-select" class="block text-sm font-medium text-gray-700">Assign Task</label>
-                             <select id="eta-task-select" class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm">
-                                <option value="">-- Select Task --</option>
-                                ${sortedTasks.map(t => `<option value="${t.name}">${t.name}</option>`).join('')}
-                             </select>
-                             <p id="eta-avg-time" class="text-xs text-gray-500 mt-1 h-4"></p>
-                        </div>
-                         <div>
-                            <label for="eta-datetime" class="block text-sm font-medium text-gray-700">Pickup Date & Time</label>
-                            <input type="datetime-local" id="eta-datetime" class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm" required>
-                        </div>
-                        <div class="flex justify-end gap-2 pt-4 border-t">
-                            <button type="button" id="eta-modal-cancel-btn" class="bg-gray-200 text-gray-800 font-semibold py-2 px-4 rounded-lg">Cancel</button>
-                            <button type="submit" class="bg-indigo-600 text-white font-semibold py-2 px-4 rounded-lg">Save</button>
-                        </div>
-                    </form>
-                </div>`;
-            openModal('eta-modal', content);
-            
-            document.getElementById('eta-modal-cancel-btn').addEventListener('click', () => closeModal('eta-modal'));
-
-            const taskSelect = document.getElementById('eta-task-select');
-            taskSelect.addEventListener('change', () => {
-                const avgMs = speedCheckAverageTimes[taskSelect.value];
-                document.getElementById('eta-avg-time').textContent = avgMs ? `Avg. time: ${formatMilliseconds(avgMs, true)}` : '';
-            });
-
-            document.getElementById('eta-form').addEventListener('submit', (e) => {
-                e.preventDefault();
-                const taskName = taskSelect.value;
-                const datetime = document.getElementById('eta-datetime').value;
-                if(taskName && datetime) {
-                    saveOrderPickupTime(orderId, taskName, datetime);
-                    closeModal('eta-modal');
-                } else {
-                    showToast('Please select a task and a date/time.', true);
-                }
-            });
-        };
-
-        // --- Firebase Write Ops ---
+        // --- Defined Functions Exposed Globally ---
+        
         async function saveSchedule() {
             const openTime = document.getElementById('shop-open-time').value;
             const closeTime = document.getElementById('shop-close-time').value;
             const today = new Date().toISOString().slice(0, 10);
-            try {
-                await db.ref(`schedules/${today}`).set({ open: openTime, close: closeTime });
-                showToast("Schedule saved.");
-            } catch(err) {
-                showToast("Error saving schedule.", true);
-            }
+            try { await db.ref(`schedules/${today}`).set({ open: openTime, close: closeTime }); showToast("Schedule saved."); } catch(err) { showToast("Error saving schedule.", true); }
         }
+        
+        function openPerformanceReportModal() {
+            const now = new Date();
+            const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+            const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay()).getTime();
+            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+
+            const calculateStats = (startTime) => {
+                const logs = allSpeedCheckLogs.filter(l => l.timestamp >= startTime);
+                const count = logs.length;
+                const totalMs = logs.reduce((sum, l) => sum + (l.durationMs || 0), 0);
+                const income = logs.reduce((sum, l) => sum + (parseFloat(l.rate) || 0), 0);
+                return { count, time: formatMilliseconds(totalMs, false), income };
+            };
+
+            const todayStats = calculateStats(startOfDay);
+            const weekStats = calculateStats(startOfWeek);
+            const monthStats = calculateStats(startOfMonth);
+
+            const content = `
+                <div class="p-4 bg-gray-50">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-xl font-bold text-gray-800">Performance Report</h3>
+                        <button id="close-report-modal" class="text-gray-500 hover:text-gray-800 text-2xl">&times;</button>
+                    </div>
+                    
+                    <div class="space-y-4">
+                        <div class="bg-white p-4 rounded-xl shadow-md border-l-4 border-blue-500">
+                            <h4 class="text-sm font-bold text-gray-500 uppercase mb-2">Today</h4>
+                            <div class="grid grid-cols-3 gap-2 text-center">
+                                <div><p class="text-xs text-gray-400">Tasks</p><p class="text-xl font-bold text-gray-800">${todayStats.count}</p></div>
+                                <div><p class="text-xs text-gray-400">Time</p><p class="text-xl font-bold text-gray-800">${todayStats.time}</p></div>
+                                <div><p class="text-xs text-gray-400">Earnings</p><p class="text-xl font-bold text-green-600">₹${todayStats.income.toFixed(0)}</p></div>
+                            </div>
+                        </div>
+                        <div class="bg-white p-4 rounded-xl shadow-md border-l-4 border-indigo-500">
+                            <h4 class="text-sm font-bold text-gray-500 uppercase mb-2">This Week</h4>
+                            <div class="grid grid-cols-3 gap-2 text-center">
+                                <div><p class="text-xs text-gray-400">Tasks</p><p class="text-xl font-bold text-gray-800">${weekStats.count}</p></div>
+                                <div><p class="text-xs text-gray-400">Time</p><p class="text-xl font-bold text-gray-800">${weekStats.time}</p></div>
+                                <div><p class="text-xs text-gray-400">Earnings</p><p class="text-xl font-bold text-green-600">₹${weekStats.income.toFixed(0)}</p></div>
+                            </div>
+                        </div>
+                        <div class="bg-white p-4 rounded-xl shadow-md border-l-4 border-purple-500">
+                            <h4 class="text-sm font-bold text-gray-500 uppercase mb-2">This Month</h4>
+                            <div class="grid grid-cols-3 gap-2 text-center">
+                                <div><p class="text-xs text-gray-400">Tasks</p><p class="text-xl font-bold text-gray-800">${monthStats.count}</p></div>
+                                <div><p class="text-xs text-gray-400">Time</p><p class="text-xl font-bold text-gray-800">${monthStats.time}</p></div>
+                                <div><p class="text-xs text-gray-400">Earnings</p><p class="text-xl font-bold text-green-600">₹${monthStats.income.toFixed(0)}</p></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            openModal('report-modal', content);
+            document.getElementById('close-report-modal').addEventListener('click', () => closeModal('report-modal'));
+        }
+
+        // --- TIMER LOGIC ---
+        function startSpeedCheckTimer(taskId, taskName) {
+            if (activeTimers[taskId] && !activeTimers[taskId].isPaused) return; 
+            activeTimers[taskId] = { taskId: taskId, taskName: taskName, startTime: Date.now(), accumulatedMs: activeTimers[taskId] ? activeTimers[taskId].accumulatedMs : 0, isPaused: false, intervalId: setInterval(() => updateTaskTimerDisplay(taskId), 1000) };
+            renderTimerPage();
+        }
+
+        function pauseSpeedCheckTimer(taskId) {
+            const timer = activeTimers[taskId];
+            if (timer && !timer.isPaused) { clearInterval(timer.intervalId); timer.intervalId = null; timer.isPaused = true; timer.accumulatedMs += (Date.now() - timer.startTime); renderTimerPage(); }
+        }
+
+        async function stopSpeedCheckTimer(taskId) {
+            const timer = activeTimers[taskId];
+            if (!timer) return;
+            if (timer.intervalId) clearInterval(timer.intervalId);
+            const durationMs = timer.isPaused ? timer.accumulatedMs : timer.accumulatedMs + (Date.now() - timer.startTime);
+            const task = speedCheckTasks.find(t => t.id === taskId);
+            const logEntry = { taskName: timer.taskName, durationMs, rate: task ? (task.rate || 0) : 0, timestamp: firebase.database.ServerValue.TIMESTAMP };
+            try { await db.ref('speedCheckLogs').push(logEntry); showToast(`Logged ${formatMilliseconds(durationMs, true)} for "${timer.taskName}".`); } catch (err) { showToast("Error saving log.", true); }
+            delete activeTimers[taskId];
+            renderTimerPage();
+        }
+
+        function updateTaskTimerDisplay(taskId) {
+            const timer = activeTimers[taskId];
+            const el = document.getElementById(`timer-display-${taskId}`);
+            if (timer && el) { const elapsed = timer.accumulatedMs + (Date.now() - timer.startTime); el.textContent = formatMilliseconds(elapsed, true); }
+        }
+
+        // --- EXPOSE GLOBALS ---
+        // Ensure functions called from HTML attributes are available globally
+        window.openPerformanceReportModal = openPerformanceReportModal;
+        window.openLogManager = openLogManager;
+        window.startSpeedCheckTimer = startSpeedCheckTimer;
+        window.pauseSpeedCheckTimer = pauseSpeedCheckTimer;
+        window.stopSpeedCheckTimer = stopSpeedCheckTimer;
+        window.setStatsFilter = (filter) => { statsTimeFilter = filter; renderStatsPage(); };
+        window.saveSchedule = saveSchedule;
+        window.openEtaModal = (orderId) => {
+            const order = allOrders.find(o => o.id === orderId);
+            if (!order) return;
+            const sortedTasks = [...speedCheckTasks].sort((a,b) => (a.name || '').localeCompare(b.name || ''));
+            const content = `<div class="p-4"><h3 class="font-bold text-lg mb-4">Set Pickup for #${order.orderNumber}</h3><form id="eta-form" class="space-y-4"><div><label for="eta-task-select" class="block text-sm font-medium text-gray-700">Assign Task</label><select id="eta-task-select" class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm"><option value="">-- Select Task --</option>${sortedTasks.map(t => `<option value="${t.name}">${t.name}</option>`).join('')}</select><p id="eta-avg-time" class="text-xs text-gray-500 mt-1 h-4"></p></div><div><label for="eta-datetime" class="block text-sm font-medium text-gray-700">Pickup Date & Time</label><input type="datetime-local" id="eta-datetime" class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm" required></div><div class="flex justify-end gap-2 pt-4 border-t"><button type="button" id="eta-modal-cancel-btn" class="bg-gray-200 text-gray-800 font-semibold py-2 px-4 rounded-lg">Cancel</button><button type="submit" class="bg-indigo-600 text-white font-semibold py-2 px-4 rounded-lg">Save</button></div></form></div>`;
+            openModal('eta-modal', content);
+            document.getElementById('eta-modal-cancel-btn').addEventListener('click', () => closeModal('eta-modal'));
+            const taskSelect = document.getElementById('eta-task-select');
+            taskSelect.addEventListener('change', () => { const avgMs = speedCheckAverageTimes[taskSelect.value]; document.getElementById('eta-avg-time').textContent = avgMs ? `Avg. time: ${formatMilliseconds(avgMs, true)}` : ''; });
+            document.getElementById('eta-form').addEventListener('submit', (e) => { e.preventDefault(); const taskName = taskSelect.value; const datetime = document.getElementById('eta-datetime').value; if(taskName && datetime) { saveOrderPickupTime(orderId, taskName, datetime); closeModal('eta-modal'); } else showToast('Please select a task and a date/time.', true); });
+        };
 
         async function saveOrderPickupTime(orderId, taskName, datetime) {
             const orderRef = db.ref(`orders/${orderId}`);
             try {
                 const etaTimestamp = new Date(datetime).getTime();
                 const minutes = Math.round((etaTimestamp - Date.now()) / 60000);
-                await orderRef.update({
-                    assignedTaskName: taskName,
-                    estimatedMinutes: minutes,
-                    estimatedCompletionTimestamp: etaTimestamp,
-                    pipelineStatus: 'in_progress'
-                });
+                await orderRef.update({ assignedTaskName: taskName, estimatedMinutes: minutes, estimatedCompletionTimestamp: etaTimestamp, pipelineStatus: 'in_progress' });
                 showToast("Order time saved successfully.");
-            } catch(err) {
-                showToast("Error saving order time.", true);
-            }
+            } catch(err) { showToast("Error saving order time.", true); }
         }
 
-        function startSpeedCheckTimer() {
-            const taskSelect = document.getElementById('timer-task-select');
-            const taskName = taskSelect.value;
-            if (!taskName) { showToast("Please select a task first.", true); return; }
-
-            scTimerState = 'running';
-            speedCheckTimer = { startTime: Date.now(), accumulatedMs: 0, taskName, isPaused: false };
-            speedCheckTimer.intervalId = setInterval(() => {
-                const elapsed = speedCheckTimer.accumulatedMs + (Date.now() - speedCheckTimer.startTime);
-                document.getElementById('timer-display').textContent = formatMilliseconds(elapsed, true);
-            }, 1000);
-
-            document.getElementById('timer-stop-btn').disabled = false;
-            document.getElementById('timer-control-btn').textContent = 'Pause';
-        }
-
-        function pauseSpeedCheckTimer() {
-            if (scTimerState !== 'running') return;
-            scTimerState = 'paused';
-            clearInterval(speedCheckTimer.intervalId);
-            speedCheckTimer.accumulatedMs += (Date.now() - speedCheckTimer.startTime);
-            speedCheckTimer.isPaused = true;
-            document.getElementById('timer-control-btn').textContent = 'Resume';
-        }
-
-        function resumeSpeedCheckTimer() {
-            if (scTimerState !== 'paused') return;
-            scTimerState = 'running';
-            speedCheckTimer.startTime = Date.now();
-            speedCheckTimer.isPaused = false;
-            speedCheckTimer.intervalId = setInterval(() => {
-                const elapsed = speedCheckTimer.accumulatedMs + (Date.now() - speedCheckTimer.startTime);
-                document.getElementById('timer-display').textContent = formatMilliseconds(elapsed, true);
-            }, 1000);
-            document.getElementById('timer-control-btn').textContent = 'Pause';
-        }
-
-        async function stopSpeedCheckTimer() {
-            if (scTimerState === 'stopped') return;
-            clearInterval(speedCheckTimer.intervalId);
-            
-            const durationMs = speedCheckTimer.isPaused ? speedCheckTimer.accumulatedMs : speedCheckTimer.accumulatedMs + (Date.now() - speedCheckTimer.startTime);
-            const task = speedCheckTasks.find(t => t.name === speedCheckTimer.taskName);
-            
-            const logEntry = { 
-                taskName: speedCheckTimer.taskName, 
-                durationMs, 
-                rate: task ? (task.rate || 0) : 0,
-                timestamp: firebase.database.ServerValue.TIMESTAMP 
-            };
-            
-            try {
-                await db.ref('speedCheckLogs').push(logEntry);
-                showToast(`Logged ${formatMilliseconds(durationMs, true)} for "${speedCheckTimer.taskName}".`);
-            } catch (err) {
-                showToast("Error saving log.", true);
-            }
-            
-            scTimerState = 'stopped';
-            speedCheckTimer = { intervalId: null, startTime: 0, accumulatedMs: 0, taskName: '', isPaused: false };
-            document.getElementById('timer-display').textContent = '00:00:00';
-            document.getElementById('timer-stop-btn').disabled = true;
-            document.getElementById('timer-control-btn').textContent = 'Start';
-        }
-        
-        // --- Initialization ---
+        // Initialize
         document.addEventListener('DOMContentLoaded', () => {
             try {
                 if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
                 db = firebase.database();
 
-                db.ref('orders').on('value', snapshot => {
-                    const data = snapshot.val() || {};
-                    allOrders = Object.entries(data).map(([key, value]) => ({...value, id: key}));
-                    runAllUpdaters();
+                db.ref('orders').on('value', snapshot => { const data = snapshot.val() || {}; allOrders = Object.entries(data).map(([key, value]) => ({...value, id: key})); runAllUpdaters(); });
+                db.ref('speedCheckLogs').on('value', snapshot => { 
+                    const data = snapshot.val() || {}; 
+                    allSpeedCheckLogs = Object.entries(data).map(([key, val]) => ({ id: key, ...val })); 
+                    runAllUpdaters(); 
                 });
-                db.ref('speedCheckLogs').on('value', snapshot => {
-                    allSpeedCheckLogs = Object.values(snapshot.val() || {});
-                    runAllUpdaters();
-                });
+                
                 db.ref('speedCheckTasks').on('value', snapshot => {
                     const data = snapshot.val() || {};
                     speedCheckTasks = Object.values(data);
                     if (speedCheckTasks.length === 0 && !snapshot.exists()) {
                          const updates = {};
-                         INITIAL_SPEED_CHECK_TASKS.forEach(name => {
-                            const newRef = db.ref('speedCheckTasks').push();
-                            updates[newRef.key] = { id: newRef.key, name: name, rate: 0 };
-                         });
+                         INITIAL_SPEED_CHECK_TASKS.forEach(name => { const newRef = db.ref('speedCheckTasks').push(); updates[newRef.key] = { id: newRef.key, name: name, rate: 0 }; });
                          db.ref('speedCheckTasks').update(updates);
                     } else {
                         runAllUpdaters();
+                        // Re-render pages if they are active to show updates
+                        if(document.querySelector('.nav-item.active[data-page="settings"]')) renderSettingsPage();
                     }
-                });
-                
-                document.querySelector('.bottom-nav').addEventListener('click', e => {
-                    const navItem = e.target.closest('.nav-item');
-                    if(navItem) switchPage(navItem.dataset.page);
                 });
 
                 const settingsPage = document.getElementById('settings-page');
@@ -703,35 +970,25 @@
                         e.preventDefault();
                         const name = document.getElementById('new-task-name').value.trim();
                         const rate = parseFloat(document.getElementById('new-task-rate').value) || 0;
-                        if (name && !speedCheckTasks.some(t => t.name.toLowerCase() === name.toLowerCase())) {
+                        if (name) {
                             const newRef = db.ref('speedCheckTasks').push();
                             newRef.set({ id: newRef.key, name, rate });
                             e.target.reset();
-                        } else {
-                            showToast("Task name cannot be empty or already exist.", true);
                         }
                     }
                 });
-                settingsPage.addEventListener('click', e => {
-                    const deleteBtn = e.target.closest('.delete-task-btn');
-                    if (deleteBtn) {
-                        if (confirm('Are you sure you want to delete this task?')) {
-                            db.ref(`speedCheckTasks/${deleteBtn.dataset.taskId}`).remove();
-                        }
-                    }
-                });
-                settingsPage.addEventListener('change', e => {
-                    const rateInput = e.target.closest('.task-rate-input');
-                    if(rateInput) {
-                        db.ref(`speedCheckTasks/${rateInput.dataset.taskId}/rate`).set(parseFloat(rateInput.value) || 0);
+                
+                // --- FIXED NAVIGATION ---
+                document.querySelector('.bottom-nav').addEventListener('click', (e) => {
+                    const navItem = e.target.closest('.nav-item');
+                    if (navItem) {
+                        switchPage(navItem.dataset.page);
                     }
                 });
 
-                switchPage('home');
-            } catch(e) {
-                 console.error("Initialization failed:", e);
-                 document.body.innerHTML = `<div class="p-8 text-center text-red-500"><h1>Error</h1><p>The application could not be initialized. Please check your Firebase configuration.</p></div>`;
-            }
+                startClock();
+                switchPage('home'); // Start at home
+            } catch(e) { console.error(e); }
         });
     </script>
 <script type="module" src="/index.tsx"></script>
